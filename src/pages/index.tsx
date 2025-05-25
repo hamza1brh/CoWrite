@@ -244,6 +244,8 @@ export default function Dashboard() {
                           <Image
                             src={doc.preview || "/placeholder.svg"}
                             alt={doc.title}
+                            width={200}
+                            height={200}
                             className="h-48 w-full object-cover transition-transform duration-300 group-hover:scale-105"
                           />
                           <div className="absolute right-3 top-3">
