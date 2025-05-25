@@ -1,93 +1,151 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/router";
 import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import { Separator } from "@/components/ui/separator";
-import { Button } from "@/components/ui/button";
 import LexicalEditor from "@/components/lexical/editor/LexicalEditor";
 import EditorHeader from "@/components/documents/EditorHeader";
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 
-// Mock data
-const collaborators = [
-  {
-    id: 1,
-    name: "Alice Johnson",
-    avatar: "/placeholder.svg?height=32&width=32",
-    status: "online" as const,
-    cursor: { x: 45, y: 23 },
-  },
-  {
-    id: 2,
-    name: "Bob Smith",
-    avatar: "/placeholder.svg?height=32&width=32",
-    status: "online" as const,
-    cursor: { x: 67, y: 45 },
-  },
-  {
-    id: 3,
-    name: "Carol Davis",
-    avatar: "/placeholder.svg?height=32&width=32",
-    status: "away" as const,
-    cursor: null,
-  },
-];
+// Fixed data imports - use the correct files
+import {
+  getDocument,
+  updateDocument,
+  type DocumentData,
+} from "@/data/mockDocuments";
+import { getComments, addComment, type Comment } from "@/data/mockComments";
+import { getCollaborators, type Collaborator } from "@/data/mockUsers";
+import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
 
-const comments = [
-  {
-    id: 1,
-    author: "Alice Johnson",
-    avatar: "/placeholder.svg?height=32&width=32",
-    content: "This section needs more detail about the user journey.",
-    timestamp: "2 hours ago",
-    resolved: false,
-  },
-  {
-    id: 2,
-    author: "Bob Smith",
-    avatar: "/placeholder.svg?height=32&width=32",
-    content:
-      "Great point about the technical constraints. Should we add a diagram?",
-    timestamp: "1 hour ago",
-    resolved: false,
-  },
-  {
-    id: 3,
-    author: "Carol Davis",
-    avatar: "/placeholder.svg?height=32&width=32",
-    content: "Updated the requirements based on stakeholder feedback.",
-    timestamp: "30 minutes ago",
-    resolved: true,
-  },
-];
+export default function DocumentEditor() {
+  const router = useRouter();
+  const { id } = router.query;
 
-const aiSuggestions = [
-  "Add a section about accessibility requirements",
-  "Consider including performance metrics",
-  "Expand on the security considerations",
-  "Add user personas to better define the target audience",
-];
-
-export default function DocumentEditor({ params }: { params: { id: string } }) {
+  // UI State
   const [showComments, setShowComments] = useState(false);
   const [showAI, setShowAI] = useState(false);
-  const [documentTitle, setDocumentTitle] = useState(
-    "Product Requirements Document"
-  );
 
+  // Data State
+  const [document, setDocument] = useState<DocumentData | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]);
+
+  // Loading States
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch data on mount and when ID changes
+  useEffect(() => {
+    if (!id || typeof id !== "string") return;
+
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const [docData, commentsData, collaboratorsData, aiData] =
+          await Promise.all([
+            getDocument(id),
+            getComments(id),
+            getCollaborators(id),
+            getAISuggestions(id),
+          ]);
+
+        if (!docData) {
+          setError("Document not found");
+          return;
+        }
+
+        setDocument(docData);
+        setComments(commentsData);
+        setCollaborators(collaboratorsData);
+        setAiSuggestions(aiData);
+      } catch (err) {
+        setError("Failed to load document data");
+        console.error("Error fetching document data:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [id]);
+
+  // Handle document title change
+  const handleTitleChange = async (newTitle: string) => {
+    if (!document) return;
+
+    try {
+      const updatedDoc = await updateDocument(document.id, { title: newTitle });
+      setDocument(updatedDoc);
+    } catch (err) {
+      console.error("Failed to update document title:", err);
+    }
+  };
+
+  // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
+
+  // Loading state
+  if (loading) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
+            <div className="flex h-64 items-center justify-center">
+              <div className="text-center">
+                <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
+                <p className="text-slate-600 dark:text-slate-400">
+                  Loading document...
+                </p>
+              </div>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    );
+  }
+
+  // Error state
+  if (error || !document) {
+    return (
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
+            <div className="flex h-64 items-center justify-center">
+              <div className="text-center">
+                <p className="mb-4 text-lg text-red-600 dark:text-red-400">
+                  {error || "Document not found"}
+                </p>
+                <button
+                  onClick={() => router.push("/")}
+                  className="text-blue-600 underline hover:text-blue-800"
+                >
+                  Return to Dashboard
+                </button>
+              </div>
+            </div>
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    );
+  }
 
   return (
     <SidebarProvider>
       <AppSidebar />
       <SidebarInset>
         <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
+          {/* Header */}
           <EditorHeader
-            documentTitle={documentTitle}
-            onTitleChange={setDocumentTitle}
+            documentTitle={document.title}
+            onTitleChange={handleTitleChange}
             collaborators={collaborators}
             showAI={showAI}
             showComments={showComments}
@@ -99,17 +157,13 @@ export default function DocumentEditor({ params }: { params: { id: string } }) {
           <div className="flex flex-1 overflow-hidden">
             {/* Main Editor */}
             <div className="flex flex-1 flex-col">
-              {/* Toolbar */}
-              <div className="surface-elevated border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
-                {/* <LexicalToolbar /> */}
-              </div>
-
               {/* Editor Content */}
-              <div className="relative flex-1">
+              <div className="relative flex-1 overflow-auto">
                 {/* Collaborative Cursors */}
                 {collaborators.map(
                   collaborator =>
-                    collaborator.cursor && (
+                    collaborator.cursor &&
+                    collaborator.status === "online" && (
                       <motion.div
                         key={collaborator.id}
                         className="pointer-events-none absolute z-10"
@@ -117,72 +171,27 @@ export default function DocumentEditor({ params }: { params: { id: string } }) {
                           left: `${collaborator.cursor.x}%`,
                           top: `${collaborator.cursor.y}%`,
                         }}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.2 }}
                       >
                         <div className="flex items-center space-x-1">
                           <div className="h-6 w-0.5 bg-blue-500" />
-                          <div className="whitespace-nowrap rounded bg-blue-500 px-2 py-1 text-xs text-white">
+                          <div className="whitespace-nowrap rounded bg-blue-500 px-2 py-1 text-xs text-white shadow-lg">
                             {collaborator.name}
                           </div>
                         </div>
                       </motion.div>
                     )
                 )}
-                <LexicalEditor showToolbar={true} />
-                {/* <div className="surface-elevated h-full p-8">
-                  <div className="mx-auto max-w-4xl">
-                    <div className="prose prose-lg max-w-none dark:prose-invert">
-                      <h1>Product Requirements Document</h1>
-                      <h2>Overview</h2>
-                      <p>
-                        This document outlines the requirements for our new
-                        collaborative document editing platform. The platform
-                        will enable real-time collaboration, AI-powered
-                        suggestions, and seamless document management.
-                      </p>
 
-                      <h2>User Stories</h2>
-                      <ul>
-                        <li>
-                          As a user, I want to create and edit documents in
-                          real-time with my team
-                        </li>
-                        <li>
-                          As a user, I want to see who else is editing the
-                          document
-                        </li>
-                        <li>
-                          As a user, I want to add comments and suggestions
-                        </li>
-                        <li>
-                          As a user, I want AI assistance for writing and
-                          editing
-                        </li>
-                      </ul>
-
-                      <h2>Technical Requirements</h2>
-                      <p>
-                        The platform should be built using modern web
-                        technologies including React, Next.js, and WebSocket for
-                        real-time collaboration. The editor should be based on
-                        Lexical for rich text editing capabilities.
-                      </p>
-
-                      <h2>Success Metrics</h2>
-                      <ul>
-                        <li>
-                          User engagement: 80% of users return within 7 days
-                        </li>
-                        <li>
-                          Collaboration: Average of 3+ collaborators per
-                          document
-                        </li>
-                        <li>Performance: Document load time under 2 seconds</li>
-                      </ul>
-                    </div>
-                  </div>
-                </div> */}
+                {/* Lexical Editor */}
+                <LexicalEditor
+                  showToolbar={true}
+                  className="min-h-full"
+                  key={document.id}
+                />
               </div>
             </div>
 
@@ -191,6 +200,15 @@ export default function DocumentEditor({ params }: { params: { id: string } }) {
               isOpen={showAI}
               onClose={() => setShowAI(false)}
               suggestions={aiSuggestions}
+              onRefreshSuggestions={async () => {
+                if (!document?.id) return;
+                try {
+                  const newSuggestions = await getAISuggestions(document.id);
+                  setAiSuggestions(newSuggestions);
+                } catch (err) {
+                  console.error("Failed to refresh AI suggestions:", err);
+                }
+              }}
             />
 
             {/* Comments Panel */}
@@ -198,6 +216,30 @@ export default function DocumentEditor({ params }: { params: { id: string } }) {
               isOpen={showComments}
               onClose={() => setShowComments(false)}
               comments={comments}
+              onAddComment={async (content: string) => {
+                if (!document?.id) return;
+                try {
+                  const newComment = await addComment(
+                    document.id,
+                    content,
+                    "Current User"
+                  );
+                  setComments(prev => [...prev, newComment]);
+                } catch (err) {
+                  console.error("Failed to add comment:", err);
+                }
+              }}
+              onResolveComment={async (commentId: number) => {
+                try {
+                  setComments(prev =>
+                    prev.map(c =>
+                      c.id === commentId ? { ...c, resolved: true } : c
+                    )
+                  );
+                } catch (err) {
+                  console.error("Failed to resolve comment:", err);
+                }
+              }}
             />
           </div>
         </div>

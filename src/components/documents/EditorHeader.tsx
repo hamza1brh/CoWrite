@@ -14,8 +14,9 @@ interface Collaborator {
   id: number;
   name: string;
   avatar: string;
-  status: "online" | "away";
+  status: "online" | "away" | "offline";
   cursor: { x: number; y: number } | null;
+  lastActive?: string;
 }
 
 interface EditorHeaderProps {
@@ -55,16 +56,18 @@ export default function EditorHeader({
           {/* Collaborators */}
           <div className="flex items-center space-x-2">
             <div className="flex -space-x-2">
-              {collaborators.map(collaborator => (
+              {collaborators.slice(0, 4).map(collaborator => (
                 <motion.div
                   key={collaborator.id}
                   initial={{ opacity: 0, scale: 0 }}
                   animate={{ opacity: 1, scale: 1 }}
                   className="relative"
+                  title={`${collaborator.name} (${collaborator.status})`}
                 >
                   <Avatar className="h-8 w-8 border-2 border-white dark:border-slate-800">
                     <AvatarImage
                       src={collaborator.avatar || "/placeholder.svg"}
+                      alt={collaborator.name}
                     />
                     <AvatarFallback>
                       {collaborator.name
@@ -77,11 +80,18 @@ export default function EditorHeader({
                     className={`absolute -bottom-1 -right-1 h-3 w-3 rounded-full border-2 border-white dark:border-slate-800 ${
                       collaborator.status === "online"
                         ? "bg-green-500"
-                        : "bg-yellow-500"
+                        : collaborator.status === "away"
+                          ? "bg-yellow-500"
+                          : "bg-gray-400"
                     }`}
                   />
                 </motion.div>
               ))}
+              {collaborators.length > 4 && (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-300">
+                  +{collaborators.length - 4}
+                </div>
+              )}
             </div>
             <Button variant="outline" size="sm">
               <Plus className="mr-2 h-4 w-4" />
