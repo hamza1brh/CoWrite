@@ -24,6 +24,7 @@
     "@lexical/react": "^0.31.2",
     "@lexical/rich-text": "^0.31.2",
     "@lexical/utils": "^0.31.2",
+    "@lexical/yjs": "^0.31.2",
     "@tailwindcss/typography": "latest",
     "autoprefixer": "^10.4.20",
     "class-variance-authority": "^0.7.1",
@@ -46,6 +47,9 @@
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.6",
+    "y-webrtc": "^10.3.0",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.27",
     "zod": "^3.24.1"
   },
   "devDependencies": {

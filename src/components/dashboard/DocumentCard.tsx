@@ -26,7 +26,7 @@ export function DocumentCard({ document: doc, viewMode }: DocumentCardProps) {
           {viewMode === "grid" && (
             <div className="relative overflow-hidden">
               <Image
-                src={doc.preview || "/placeholder.svg"}
+                src={doc.preview || "/placeholder.png"}
                 alt={doc.title}
                 width={200}
                 height={200}
