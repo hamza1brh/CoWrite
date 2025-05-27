@@ -342,3 +342,54 @@
 .editor-input + div {
   display: none !important;
 }
+
+.collaboration-cursor__caret {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+  user-select: none;
+  width: 2px;
+  height: 1.2em;
+  z-index: 50;
+  border-radius: 1px;
+}
+
+.collaboration-cursor__name {
+  position: absolute;
+  top: -2.2em;
+  left: 0;
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 6px;
+  color: white;
+  pointer-events: none;
+  user-select: none;
+  z-index: 50;
+  transform: translateX(-50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.collaboration-cursor__selection {
+  pointer-events: none;
+  user-select: none;
+  z-index: 5;
+  opacity: 0.2;
+}
+
+/* Ensure the editor container is positioned for absolute cursors */
+.editor-input {
+  position: relative;
+}
+
+/* Text cursor/caret styling for dark mode */
+.dark .editor-input {
+  caret-color: #60a5fa;
+}
+
+/* Light mode keeps default black cursor */
+.editor-input {
+  caret-color: #000000;
+}

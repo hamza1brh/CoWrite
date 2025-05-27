@@ -158,89 +158,135 @@ export default function DocumentEditor() {
             {/* Main Editor */}
             <div className="flex flex-1 flex-col">
               {/* Editor Content */}
-              <div className="relative flex-1 overflow-auto">
-                {/* Collaborative Cursors */}
-                {collaborators.map(
-                  collaborator =>
-                    collaborator.cursor &&
-                    collaborator.status === "online" && (
-                      <motion.div
-                        key={collaborator.id}
-                        className="pointer-events-none absolute z-10"
-                        style={{
-                          left: `${collaborator.cursor.x}%`,
-                          top: `${collaborator.cursor.y}%`,
-                        }}
-                        initial={{ opacity: 0, scale: 0.8 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.8 }}
-                        transition={{ duration: 0.2 }}
-                      >
-                        <div className="flex items-center space-x-1">
-                          <div className="h-6 w-0.5 bg-blue-500" />
-                          <div className="whitespace-nowrap rounded bg-blue-500 px-2 py-1 text-xs text-white shadow-lg">
-                            {collaborator.name}
-                          </div>
-                        </div>
-                      </motion.div>
-                    )
-                )}
-
-                {/* Lexical Editor */}
-                <LexicalEditor
-                  showToolbar={true}
-                  className="min-h-full"
-                  key={document.id}
-                />
+              <div className="relative flex-1 overflow-auto p-4 sm:p-6">
+                {/* Document Container */}
+                <div className="mx-auto max-w-3xl rounded-lg border border-slate-200/30 dark:border-slate-700/20 sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl">
+                  {/* Lexical Editor */}
+                  <LexicalEditor
+                    showToolbar={true}
+                    className="min-h-full"
+                    documentId={document.id}
+                    key={document.id}
+                  />
+                </div>
               </div>
             </div>
 
-            {/* AI Assistant Panel */}
-            <AiAssistantPanel
-              isOpen={showAI}
-              onClose={() => setShowAI(false)}
-              suggestions={aiSuggestions}
-              onRefreshSuggestions={async () => {
-                if (!document?.id) return;
-                try {
-                  const newSuggestions = await getAISuggestions(document.id);
-                  setAiSuggestions(newSuggestions);
-                } catch (err) {
-                  console.error("Failed to refresh AI suggestions:", err);
-                }
-              }}
-            />
+            {/* Desktop Panels - Only render on larger screens */}
+            <div className="hidden lg:flex">
+              <AiAssistantPanel
+                isOpen={showAI}
+                onClose={() => setShowAI(false)}
+                suggestions={aiSuggestions}
+                onRefreshSuggestions={async () => {
+                  if (!document?.id) return;
+                  try {
+                    const newSuggestions = await getAISuggestions(document.id);
+                    setAiSuggestions(newSuggestions);
+                  } catch (err) {
+                    console.error("Failed to refresh AI suggestions:", err);
+                  }
+                }}
+              />
 
-            {/* Comments Panel */}
-            <CommentsPanel
-              isOpen={showComments}
-              onClose={() => setShowComments(false)}
-              comments={comments}
-              onAddComment={async (content: string) => {
-                if (!document?.id) return;
-                try {
-                  const newComment = await addComment(
-                    document.id,
-                    content,
-                    "Current User"
-                  );
-                  setComments(prev => [...prev, newComment]);
-                } catch (err) {
-                  console.error("Failed to add comment:", err);
-                }
-              }}
-              onResolveComment={async (commentId: number) => {
-                try {
-                  setComments(prev =>
-                    prev.map(c =>
-                      c.id === commentId ? { ...c, resolved: true } : c
-                    )
-                  );
-                } catch (err) {
-                  console.error("Failed to resolve comment:", err);
-                }
-              }}
-            />
+              <CommentsPanel
+                isOpen={showComments}
+                onClose={() => setShowComments(false)}
+                comments={comments}
+                onAddComment={async (content: string) => {
+                  if (!document?.id) return;
+                  try {
+                    const newComment = await addComment(
+                      document.id,
+                      content,
+                      "Current User"
+                    );
+                    setComments(prev => [...prev, newComment]);
+                  } catch (err) {
+                    console.error("Failed to add comment:", err);
+                  }
+                }}
+                onResolveComment={async (commentId: number) => {
+                  try {
+                    setComments(prev =>
+                      prev.map(c =>
+                        c.id === commentId ? { ...c, resolved: true } : c
+                      )
+                    );
+                  } catch (err) {
+                    console.error("Failed to resolve comment:", err);
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Mobile Panels - Overlay/Modal style */}
+          <div className="lg:hidden">
+            {(showAI || showComments) && (
+              <div
+                className="fixed inset-0 z-50 bg-black/50"
+                onClick={() => {
+                  setShowAI(false);
+                  setShowComments(false);
+                }}
+              />
+            )}
+
+            {showAI && (
+              <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
+                <AiAssistantPanel
+                  isOpen={true}
+                  onClose={() => setShowAI(false)}
+                  suggestions={aiSuggestions}
+                  onRefreshSuggestions={async () => {
+                    if (!document?.id) return;
+                    try {
+                      const newSuggestions = await getAISuggestions(
+                        document.id
+                      );
+                      setAiSuggestions(newSuggestions);
+                    } catch (err) {
+                      console.error("Failed to refresh AI suggestions:", err);
+                    }
+                  }}
+                />
+              </div>
+            )}
+
+            {showComments && (
+              <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
+                <CommentsPanel
+                  isOpen={true}
+                  onClose={() => setShowComments(false)}
+                  comments={comments}
+                  onAddComment={async (content: string) => {
+                    if (!document?.id) return;
+                    try {
+                      const newComment = await addComment(
+                        document.id,
+                        content,
+                        "Current User"
+                      );
+                      setComments(prev => [...prev, newComment]);
+                    } catch (err) {
+                      console.error("Failed to add comment:", err);
+                    }
+                  }}
+                  onResolveComment={async (commentId: number) => {
+                    try {
+                      setComments(prev =>
+                        prev.map(c =>
+                          c.id === commentId ? { ...c, resolved: true } : c
+                        )
+                      );
+                    } catch (err) {
+                      console.error("Failed to resolve comment:", err);
+                    }
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
       </SidebarInset>
