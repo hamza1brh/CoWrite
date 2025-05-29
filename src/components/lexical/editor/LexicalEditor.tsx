@@ -6,7 +6,6 @@ import { CollaborationPlugin } from "@lexical/react/LexicalCollaborationPlugin";
 import type { Provider } from "@lexical/yjs";
 import * as Y from "yjs";
 
-// Import playground nodes
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
 import { ListItemNode, ListNode } from "@lexical/list";
@@ -14,6 +13,7 @@ import { CodeHighlightNode, CodeNode } from "@lexical/code";
 import { AutoLinkNode, LinkNode } from "@lexical/link";
 import { HashtagNode } from "@lexical/hashtag";
 import { OverflowNode } from "@lexical/overflow";
+import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
 
 import Editor from "./Editor";
 import LexicalToolbar from "./LexicalToolbar";
@@ -23,9 +23,7 @@ import { cn } from "@/lib/utils";
 import { createWebsocketProvider } from "@/lib/providers";
 import { lexicalTheme } from "@/lib/lexical-theme";
 import type { UserProfile, ActiveUserProfile } from "@/lib/types/collaboration";
-// import ToolbarPlugin from "@/plugins/ToolbarPlugin";
 
-// Enhanced editor config based on playground
 const editorConfig = {
   editorState: null,
   namespace: "CoWrite Collaborative Editor",
@@ -43,6 +41,7 @@ const editorConfig = {
     LinkNode,
     HashtagNode,
     OverflowNode,
+    HorizontalRuleNode,
   ],
   onError(error: Error) {
     throw error;
@@ -164,7 +163,6 @@ export default function LexicalEditor({
         {showToolbar && (
           <div className="surface-elevated mb-4 border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
             <LexicalToolbar />
-            {/* <ToolbarPlugin setIsLinkEditMode={setIsLinkEditMode} /> */}
           </div>
         )}
 

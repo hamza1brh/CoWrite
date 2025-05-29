@@ -32,7 +32,6 @@ export default function Editor({
   isSmallWidthViewport,
   onRef,
 }: EditorContentProps) {
-  // ✅ Now this works because we're inside LexicalComposer!
   const isEditable = useLexicalEditable();
 
   return (
@@ -56,33 +55,25 @@ export default function Editor({
         placeholder={null}
         ErrorBoundary={LexicalErrorBoundary}
       />
-
       {/* Core Plugins */}
       <AutoFocusPlugin />
       <HashtagPlugin />
       <LinkPlugin />
       <ClickableLinkPlugin disabled={!isEditable} />
-
       {/* List Plugins */}
       <ListPlugin />
       <CheckListPlugin />
-
       {/* Table Plugins */}
       <TablePlugin hasCellMerge={true} hasCellBackgroundColor={true} />
-
       {/* Utility Plugins */}
       <TabIndentationPlugin />
       <HorizontalRulePlugin />
-
       {/* Markdown Support */}
       <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
-
       {/* History Plugin for non-collaborative mode */}
       <HistoryPlugin />
-
-      {/* Your Custom Plugin */}
+      {/* Mock document content */}
       <InitialContentPlugin />
-
       {/* Future floating plugins can go here when floatingAnchorElem is ready */}
       {floatingAnchorElem && !isSmallWidthViewport && (
         <>

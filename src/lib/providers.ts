@@ -10,7 +10,7 @@ function getWebSocketURL(): string {
   const hostname = window.location.hostname;
 
   if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return process.env.NEXT_PUBLIC_WS_URL || "ws://192.168.1.123:1234";
+    return process.env.NEXT_PUBLIC_WS_URL || "ws://192.168.1.123:10000";
   } else {
     return (
       process.env.NEXT_PUBLIC_WS_URL ||
