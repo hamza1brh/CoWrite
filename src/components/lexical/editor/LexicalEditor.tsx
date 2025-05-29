@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { createWebsocketProvider } from "@/lib/providers";
 import { lexicalTheme } from "@/lib/lexical-theme";
 import type { UserProfile, ActiveUserProfile } from "@/lib/types/collaboration";
+import LexicalToolbarRich from "./LexicalToolbarRich";
 
 const editorConfig = {
   editorState: null,
@@ -162,7 +163,7 @@ export default function LexicalEditor({
         {/* Toolbar */}
         {showToolbar && (
           <div className="surface-elevated mb-4 border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
-            <LexicalToolbar />
+            <LexicalToolbarRich />
           </div>
         )}
 
