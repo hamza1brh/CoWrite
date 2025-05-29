@@ -393,3 +393,48 @@
 .editor-input {
   caret-color: #000000;
 }
+
+
+.toolbar-select {
+  @apply h-8 text-sm;
+
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+}
+
+.toolbar-select:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.toolbar-select:focus {
+  outline: none;
+  ring: 1px solid hsl(var(--ring));
+}
+
+.toolbar-select-content {
+  background: hsl(var(--popover));
+  border: 1px solid hsl(var(--border));
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.1),
+    0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Dark mode specific shadow */
+.dark .toolbar-select-content {
+  box-shadow:
+    0 10px 40px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(71, 85, 105, 0.2);
+}
+
+.toolbar-select-item {
+  @apply text-sm;
+  color: hsl(var(--popover-foreground));
+}
+
+.toolbar-select-item:hover,
+.toolbar-select-item:focus {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}

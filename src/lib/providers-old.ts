@@ -9,7 +9,7 @@ export function createWebsocketProvider(
   const doc = getDocFromMap(id, yjsDocMap);
 
   // @ts-expect-error TODO: FIXME
-  return new WebsocketProvider("ws://192.168.1.123:1234", id, doc, {
+  return new WebsocketProvider("ws://192.168.1.123:10000", id, doc, {
     connect: false,
   });
 }

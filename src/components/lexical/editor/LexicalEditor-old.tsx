@@ -2,32 +2,42 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
+import { RichTextPlugin } from "@lexical/react/LexicalRichTextPlugin";
+import { ContentEditable } from "@lexical/react/LexicalContentEditable";
 import { CollaborationPlugin } from "@lexical/react/LexicalCollaborationPlugin";
+import { AutoFocusPlugin } from "@lexical/react/LexicalAutoFocusPlugin";
+import { LinkPlugin } from "@lexical/react/LexicalLinkPlugin";
+import { ListPlugin } from "@lexical/react/LexicalListPlugin";
+import { MarkdownShortcutPlugin } from "@lexical/react/LexicalMarkdownShortcutPlugin";
+import { TRANSFORMERS } from "@lexical/markdown";
+import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import type { Provider } from "@lexical/yjs";
 import * as Y from "yjs";
 
+import InitialContentPlugin from "./InitialContentPlugin";
+import LexicalToolbar from "./LexicalToolbar";
+import UserControlPanel from "./UserControlPanel";
+
+// lexical
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
 import { TableCellNode, TableNode, TableRowNode } from "@lexical/table";
 import { ListItemNode, ListNode } from "@lexical/list";
 import { CodeHighlightNode, CodeNode } from "@lexical/code";
 import { AutoLinkNode, LinkNode } from "@lexical/link";
-import { HashtagNode } from "@lexical/hashtag";
-import { OverflowNode } from "@lexical/overflow";
-import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
-
-import Editor from "./Editor";
-import LexicalToolbar from "./LexicalToolbar";
-import UserControlPanel from "./UserControlPanel";
-
 import { cn } from "@/lib/utils";
+
 import { createWebsocketProvider } from "@/lib/providers";
 import { lexicalTheme } from "@/lib/lexical-theme";
 import type { UserProfile, ActiveUserProfile } from "@/lib/types/collaboration";
-import LexicalToolbarRich from "./LexicalToolbarRich";
+
+const placeholder = "Start writing your document...";
 
 const editorConfig = {
+  // NOTE: This is critical for collaboration plugin to set editor state to null. It
+  // would indicate that the editor should not try to set any default state
+  // (not even empty one), and let collaboration plugin do it instead
   editorState: null,
-  namespace: "CoWrite Collaborative Editor",
+  namespace: "React.js Collab Demo",
   nodes: [
     HeadingNode,
     ListNode,
@@ -40,13 +50,12 @@ const editorConfig = {
     TableRowNode,
     AutoLinkNode,
     LinkNode,
-    HashtagNode,
-    OverflowNode,
-    HorizontalRuleNode,
   ],
+  // Handling of errors during update
   onError(error: Error) {
     throw error;
   },
+
   theme: lexicalTheme,
 };
 
@@ -65,22 +74,10 @@ export default function LexicalEditor({
     name: "User " + Math.floor(Math.random() * 1000),
     color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
   }));
-
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const [floatingAnchorElem, setFloatingAnchorElem] =
-    useState<HTMLDivElement | null>(null);
   const [yjsProvider, setYjsProvider] = useState<null | Provider>(null);
   const [connected, setConnected] = useState(false);
   const [activeUsers, setActiveUsers] = useState<ActiveUserProfile[]>([]);
-  const [isSmallWidthViewport, setIsSmallWidthViewport] =
-    useState<boolean>(false);
-  const [isLinkEditMode, setIsLinkEditMode] = useState<boolean>(false);
-
-  const onRef = useCallback((_floatingAnchorElem: HTMLDivElement) => {
-    if (_floatingAnchorElem !== null) {
-      setFloatingAnchorElem(_floatingAnchorElem);
-    }
-  }, []);
 
   const handleAwarenessUpdate = useCallback(() => {
     const awareness = yjsProvider!.awareness!;
@@ -95,33 +92,26 @@ export default function LexicalEditor({
     );
   }, [yjsProvider]);
 
+  const handleConnectionToggle = () => {
+    if (yjsProvider == null) {
+      return;
+    }
+    if (connected) {
+      yjsProvider.disconnect();
+    } else {
+      yjsProvider.connect();
+    }
+  };
+
   useEffect(() => {
     if (yjsProvider == null) {
       return;
     }
 
     yjsProvider.awareness.on("update", handleAwarenessUpdate);
+
     return () => yjsProvider.awareness.off("update", handleAwarenessUpdate);
   }, [yjsProvider, handleAwarenessUpdate]);
-
-  useEffect(() => {
-    const updateViewPortWidth = () => {
-      const isNextSmallWidthViewport = window.matchMedia(
-        "(max-width: 1025px)"
-      ).matches;
-
-      if (isNextSmallWidthViewport !== isSmallWidthViewport) {
-        setIsSmallWidthViewport(isNextSmallWidthViewport);
-      }
-    };
-
-    updateViewPortWidth();
-    window.addEventListener("resize", updateViewPortWidth);
-
-    return () => {
-      window.removeEventListener("resize", updateViewPortWidth);
-    };
-  }, [isSmallWidthViewport]);
 
   const providerFactory = useCallback(
     (id: string, yjsDocMap: Map<string, Y.Doc>) => {
@@ -135,6 +125,7 @@ export default function LexicalEditor({
       });
 
       setTimeout(() => setYjsProvider(provider), 0);
+
       return provider;
     },
     []
@@ -150,7 +141,6 @@ export default function LexicalEditor({
       />
 
       <LexicalComposer initialConfig={editorConfig}>
-        {/* Collaboration Plugin */}
         <CollaborationPlugin
           id={documentId}
           providerFactory={providerFactory}
@@ -160,19 +150,36 @@ export default function LexicalEditor({
           cursorsContainerRef={containerRef}
         />
 
-        {/* Toolbar */}
         {showToolbar && (
           <div className="surface-elevated mb-4 border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
-            <LexicalToolbarRich />
+            <LexicalToolbar />
           </div>
         )}
 
-        {/* ✅ All editor content that needs Lexical context goes in this child component */}
-        <Editor
-          floatingAnchorElem={floatingAnchorElem}
-          isSmallWidthViewport={isSmallWidthViewport}
-          onRef={onRef}
-        />
+        {/* Editor */}
+        <div className="relative">
+          <RichTextPlugin
+            contentEditable={
+              <ContentEditable
+                className="editor-input prose prose-lg min-h-[400px] max-w-none p-6 dark:prose-invert focus:outline-none"
+                aria-placeholder={placeholder}
+                placeholder={
+                  <div className="editor-placeholder pointer-events-none absolute left-6 top-6 text-slate-400">
+                    {placeholder}
+                  </div>
+                }
+              />
+            }
+            placeholder={null}
+            ErrorBoundary={LexicalErrorBoundary}
+          />
+
+          <AutoFocusPlugin />
+          <LinkPlugin />
+          <ListPlugin />
+          <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
+          <InitialContentPlugin />
+        </div>
       </LexicalComposer>
     </div>
   );

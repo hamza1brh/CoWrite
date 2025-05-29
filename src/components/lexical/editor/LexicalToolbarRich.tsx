@@ -8,6 +8,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  CAN_UNDO_COMMAND,
+  CAN_REDO_COMMAND,
+  COMMAND_PRIORITY_CRITICAL,
+} from "lexical";
+import {
   INSERT_UNORDERED_LIST_COMMAND,
   INSERT_ORDERED_LIST_COMMAND,
   INSERT_CHECK_LIST_COMMAND,
@@ -24,6 +29,7 @@ import {
   $getSelectionStyleValueForProperty,
   $patchStyleText,
 } from "@lexical/selection";
+import { mergeRegister } from "@lexical/utils";
 
 import {
   $getSelection,
@@ -32,6 +38,7 @@ import {
   FORMAT_ELEMENT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,
+  SELECTION_CHANGE_COMMAND,
 } from "lexical";
 import {
   Bold,
@@ -55,7 +62,6 @@ import {
 } from "lucide-react";
 import { useState, useCallback, useEffect } from "react";
 
-// Add the missing FONT_FAMILY_OPTIONS array and FontFamilySelect component
 const FONT_FAMILY_OPTIONS: [string, string][] = [
   ["Arial", "Arial"],
   ["Courier New", "Courier New"],
@@ -64,6 +70,259 @@ const FONT_FAMILY_OPTIONS: [string, string][] = [
   ["Trebuchet MS", "Trebuchet MS"],
   ["Verdana", "Verdana"],
 ];
+
+const FONT_SIZE_OPTIONS: [string, string][] = [
+  ["10px", "10px"],
+  ["11px", "11px"],
+  ["12px", "12px"],
+  ["13px", "13px"],
+  ["14px", "14px"],
+  ["15px", "15px"],
+  ["16px", "16px"],
+  ["17px", "17px"],
+  ["18px", "18px"],
+  ["19px", "19px"],
+  ["20px", "20px"],
+];
+
+function dropDownActiveClass(active: boolean) {
+  if (active) {
+    return "active dropdown-item-active";
+  } else {
+    return "";
+  }
+}
+
+// Font dropdown component using shadcn/ui Select
+function FontDropDown({
+  editor,
+  value,
+  style,
+  disabled = false,
+}: {
+  editor: any;
+  value: string;
+  style: string;
+  disabled?: boolean;
+}): JSX.Element {
+  const handleValueChange = useCallback(
+    (selectedValue: string) => {
+      editor.update(() => {
+        const selection = $getSelection();
+        if (selection !== null) {
+          $patchStyleText(selection, {
+            [style]: selectedValue,
+          });
+        }
+      });
+    },
+    [editor, style]
+  );
+
+  const options =
+    style === "font-family" ? FONT_FAMILY_OPTIONS : FONT_SIZE_OPTIONS;
+
+  return (
+    <Select value={value} onValueChange={handleValueChange} disabled={disabled}>
+      <SelectTrigger className="h-8 w-auto min-w-[120px]">
+        <SelectValue
+          placeholder={style === "font-family" ? "Font Family" : "Font Size"}
+        />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map(([optionValue, displayText]) => (
+          <SelectItem key={optionValue} value={optionValue}>
+            {displayText}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// FontSize component exactly from playground
+function FontSize({
+  selectionFontSize,
+  editor,
+  disabled = false,
+}: {
+  selectionFontSize: string;
+  editor: any;
+  disabled?: boolean;
+}): JSX.Element {
+  const [inputValue, setInputValue] = useState<string>(selectionFontSize);
+  const [inputFontSize, setInputFontSize] = useState<string>(selectionFontSize);
+
+  const calculateNextFontSize = useCallback(
+    (currentFontSize: number, updateType: string) => {
+      if (!updateType || updateType === "") {
+        return currentFontSize;
+      }
+
+      let updatedFontSize: number = currentFontSize;
+      switch (updateType) {
+        case "inc":
+          switch (true) {
+            case currentFontSize < 12:
+              updatedFontSize = currentFontSize + 1;
+              break;
+            case currentFontSize < 20:
+              updatedFontSize = currentFontSize + 2;
+              break;
+            case currentFontSize < 36:
+              updatedFontSize = currentFontSize + 4;
+              break;
+            case currentFontSize <= 90:
+              updatedFontSize = currentFontSize + 8;
+              break;
+            default:
+              updatedFontSize = currentFontSize;
+              break;
+          }
+          break;
+
+        case "dec":
+          switch (true) {
+            case currentFontSize <= 12:
+              updatedFontSize = currentFontSize - 1;
+              break;
+            case currentFontSize <= 20:
+              updatedFontSize = currentFontSize - 2;
+              break;
+            case currentFontSize <= 36:
+              updatedFontSize = currentFontSize - 4;
+              break;
+            case currentFontSize <= 90:
+              updatedFontSize = currentFontSize - 8;
+              break;
+            default:
+              updatedFontSize = currentFontSize;
+              break;
+          }
+          break;
+
+        default:
+          break;
+      }
+      return updatedFontSize;
+    },
+    []
+  );
+
+  const updateFontSizeInSelection = useCallback(
+    (newFontSize: string, updateType: string) => {
+      const getNextFontSize = (currentStyleValue: string | null): string => {
+        let prevFontSize = currentStyleValue;
+        if (!prevFontSize) {
+          prevFontSize = "15px";
+        }
+        prevFontSize = prevFontSize.slice(0, -2);
+        const nextFontSize = calculateNextFontSize(
+          Number(prevFontSize),
+          updateType
+        );
+        return String(nextFontSize) + "px";
+      };
+
+      editor.update(() => {
+        if (editor.isEditable()) {
+          const selection = $getSelection();
+          if (selection !== null) {
+            $patchStyleText(selection, {
+              "font-size": updateType === "" ? newFontSize : getNextFontSize,
+            });
+          }
+        }
+      });
+    },
+    [calculateNextFontSize, editor]
+  );
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const inputValueNumber = Number(inputValue);
+
+    if (["e", "E", "+", "-"].includes(e.key) || isNaN(inputValueNumber)) {
+      e.preventDefault();
+      setInputValue("");
+      return;
+    }
+    setInputFontSize(inputValue);
+    if (e.key === "Enter") {
+      e.preventDefault();
+
+      let nextFontSize = inputValue !== "" ? inputValue : inputFontSize;
+
+      nextFontSize = Number(nextFontSize) > 100 ? "100" : nextFontSize;
+      nextFontSize = Number(nextFontSize) < 1 ? "1" : nextFontSize;
+
+      updateFontSizeInSelection(nextFontSize + "px", "");
+      setInputValue("");
+    }
+  };
+
+  const handleInputBlur = () => {
+    if (inputValue !== "" && Number(inputValue) > 0) {
+      let nextFontSize = inputValue !== "" ? inputValue : inputFontSize;
+
+      nextFontSize = Number(nextFontSize) > 100 ? "100" : nextFontSize;
+      nextFontSize = Number(nextFontSize) < 1 ? "1" : nextFontSize;
+
+      updateFontSizeInSelection(nextFontSize + "px", "");
+    }
+    setInputValue("");
+  };
+
+  const handleButtonClick = (updateType: string) => {
+    if (inputValue !== "") {
+      let nextFontSize = inputValue !== "" ? inputValue : inputFontSize;
+
+      nextFontSize = Number(nextFontSize) > 100 ? "100" : nextFontSize;
+      nextFontSize = Number(nextFontSize) < 1 ? "1" : nextFontSize;
+
+      updateFontSizeInSelection(nextFontSize + "px", "");
+      setInputValue("");
+    } else {
+      updateFontSizeInSelection("", updateType);
+    }
+  };
+
+  useEffect(() => {
+    setInputFontSize(selectionFontSize);
+  }, [selectionFontSize]);
+
+  return (
+    <div className="flex items-center space-x-1">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => handleButtonClick("dec")}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-sm text-foreground transition-colors hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        -
+      </button>
+      <input
+        type="number"
+        disabled={disabled}
+        className="h-8 w-16 rounded-md border border-border bg-background px-2 text-center text-sm text-foreground transition-colors [appearance:textfield] placeholder:text-muted-foreground hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        placeholder={selectionFontSize}
+        value={inputValue}
+        onChange={e => setInputValue(e.target.value)}
+        onKeyDown={handleKeyPress}
+        onBlur={handleInputBlur}
+        min="1"
+        max="100"
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => handleButtonClick("inc")}
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background text-sm text-foreground transition-colors hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        +
+      </button>
+    </div>
+  );
+}
 
 export default function LexicalToolbar() {
   const [editor] = useLexicalComposerContext();
@@ -75,7 +334,7 @@ export default function LexicalToolbar() {
   const [isStrikethrough, setIsStrikethrough] = useState(false);
   const [isCode, setIsCode] = useState(false);
 
-  // Add font states
+  // Font states - exactly from playground
   const [fontFamily, setFontFamily] = useState<string>("Arial");
   const [fontSize, setFontSize] = useState<string>("15px");
 
@@ -83,21 +342,18 @@ export default function LexicalToolbar() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
-  // Parse font size to just the number for display
-  const getFontSizeNumber = (size: string): string => {
-    return size.replace("px", "");
-  };
-
-  const updateToolbar = useCallback(() => {
+  // Update toolbar function exactly from playground
+  const $updateToolbar = useCallback(() => {
     const selection = $getSelection();
     if ($isRangeSelection(selection)) {
+      // Update text format
       setIsBold(selection.hasFormat("bold"));
       setIsItalic(selection.hasFormat("italic"));
       setIsUnderline(selection.hasFormat("underline"));
       setIsStrikethrough(selection.hasFormat("strikethrough"));
       setIsCode(selection.hasFormat("code"));
 
-      // Add font property detection
+      // Handle font properties exactly as in playground
       setFontFamily(
         $getSelectionStyleValueForProperty(selection, "font-family", "Arial")
       );
@@ -108,12 +364,41 @@ export default function LexicalToolbar() {
   }, []);
 
   useEffect(() => {
-    return editor.registerUpdateListener(({ editorState }) => {
-      editorState.read(() => {
-        updateToolbar();
-      });
-    });
-  }, [editor, updateToolbar]);
+    return editor.registerCommand(
+      SELECTION_CHANGE_COMMAND,
+      (_payload, newEditor) => {
+        $updateToolbar();
+        return false;
+      },
+      COMMAND_PRIORITY_CRITICAL
+    );
+  }, [editor, $updateToolbar]);
+
+  useEffect(() => {
+    return mergeRegister(
+      editor.registerUpdateListener(({ editorState }) => {
+        editorState.read(() => {
+          $updateToolbar();
+        });
+      }),
+      editor.registerCommand<boolean>(
+        CAN_UNDO_COMMAND,
+        payload => {
+          setCanUndo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL
+      ),
+      editor.registerCommand<boolean>(
+        CAN_REDO_COMMAND,
+        payload => {
+          setCanRedo(payload);
+          return false;
+        },
+        COMMAND_PRIORITY_CRITICAL
+      )
+    );
+  }, [$updateToolbar, editor]);
 
   // Text formatting functions
   const formatText = (
@@ -173,65 +458,6 @@ export default function LexicalToolbar() {
     editor.dispatchCommand(REDO_COMMAND, undefined);
   };
 
-  // Font styling functions
-  const applyStyleText = useCallback(
-    (styles: Record<string, string>) => {
-      editor.update(() => {
-        const selection = $getSelection();
-        if (selection !== null) {
-          $patchStyleText(selection, styles);
-        }
-      });
-    },
-    [editor]
-  );
-
-  const handleFontFamilyChange = (family: string) => {
-    applyStyleText({ "font-family": family });
-  };
-
-  const handleFontSizeChange = (size: string) => {
-    applyStyleText({ "font-size": size });
-  };
-
-  const FontFamilySelect = () => (
-    <Select value={fontFamily} onValueChange={handleFontFamilyChange}>
-      <SelectTrigger className="toolbar-select w-36">
-        <SelectValue placeholder="Font Family" />
-      </SelectTrigger>
-      <SelectContent className="toolbar-select-content">
-        {FONT_FAMILY_OPTIONS.map(([value, label]) => (
-          <SelectItem key={value} value={value} className="toolbar-select-item">
-            <span style={{ fontFamily: value }}>{label}</span>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-
-  const FontSizeControl = () => (
-    <div className="relative">
-      <input
-        type="number"
-        min="1"
-        max="999"
-        value={getFontSizeNumber(fontSize)}
-        onChange={e => {
-          const value = e.target.value;
-          if (value && parseInt(value) >= 1 && parseInt(value) <= 999) {
-            handleFontSizeChange(value + "px");
-          }
-        }}
-        className="h-8 w-16 rounded-md border border-border bg-background px-2 text-center text-sm text-foreground transition-colors [appearance:textfield] placeholder:text-muted-foreground hover:bg-accent/50 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-        placeholder="14"
-        title="Font size in pixels"
-      />
-      <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
-        px
-      </span>
-    </div>
-  );
-
   return (
     <div className="flex flex-wrap items-center space-x-4">
       {/* History Controls */}
@@ -258,10 +484,19 @@ export default function LexicalToolbar() {
 
       <Separator orientation="vertical" className="h-4" />
 
-      {/* Font Controls */}
+      {/* Font Controls - Using shadcn/ui Select components */}
       <div className="flex items-center space-x-2">
-        <FontFamilySelect />
-        <FontSizeControl />
+        <FontDropDown
+          editor={editor}
+          value={fontFamily}
+          style="font-family"
+          disabled={false}
+        />
+        <FontSize
+          selectionFontSize={fontSize.slice(0, -2)}
+          editor={editor}
+          disabled={false}
+        />
       </div>
 
       <Separator orientation="vertical" className="h-4" />
