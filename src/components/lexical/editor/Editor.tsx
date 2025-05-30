@@ -16,23 +16,71 @@ import { HashtagPlugin } from "@lexical/react/LexicalHashtagPlugin";
 import { TRANSFORMERS } from "@lexical/markdown";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalEditable } from "@lexical/react/useLexicalEditable";
+import { useState, useEffect } from "react";
 
 import InitialContentPlugin from "./InitialContentPlugin";
+import FloatingTextFormatToolbarPlugin from "../plugins/FloatingTextFormatToolbarPlugin";
 
 const placeholder = "Start writing your document...";
 
 interface EditorContentProps {
-  floatingAnchorElem: HTMLDivElement | null;
-  isSmallWidthViewport: boolean;
-  onRef: (elem: HTMLDivElement) => void;
+  floatingAnchorElem?: HTMLDivElement | null;
+  isSmallWidthViewport?: boolean;
+  onRef?: (elem: HTMLDivElement) => void;
 }
 
 export default function Editor({
-  floatingAnchorElem,
-  isSmallWidthViewport,
-  onRef,
+  floatingAnchorElem: externalFloatingAnchorElem,
+  isSmallWidthViewport: externalIsSmallWidthViewport,
+  onRef: externalOnRef,
 }: EditorContentProps) {
   const isEditable = useLexicalEditable();
+
+  // Internal state management for floating toolbar
+  const [floatingAnchorElem, setFloatingAnchorElem] =
+    useState<HTMLDivElement | null>(null);
+  const [isSmallWidthViewport, setIsSmallWidthViewport] =
+    useState<boolean>(false);
+
+  // Use external props if provided, otherwise use internal state
+  const actualFloatingAnchorElem =
+    externalFloatingAnchorElem ?? floatingAnchorElem;
+  const actualIsSmallWidthViewport =
+    externalIsSmallWidthViewport ?? isSmallWidthViewport;
+
+  // Handle viewport size changes
+  useEffect(() => {
+    const updateViewPortWidth = () => {
+      const isNextSmallWidthViewport = window.matchMedia(
+        "(max-width: 1025px)"
+      ).matches;
+      setIsSmallWidthViewport(isNextSmallWidthViewport);
+    };
+    updateViewPortWidth();
+    window.addEventListener("resize", updateViewPortWidth);
+
+    return () => {
+      window.removeEventListener("resize", updateViewPortWidth);
+    };
+  }, []);
+
+  // Ref callback to set the floating anchor element
+  const onRef = (floatingAnchorElem: HTMLDivElement) => {
+    if (floatingAnchorElem !== null) {
+      setFloatingAnchorElem(floatingAnchorElem);
+    }
+    if (externalOnRef) {
+      externalOnRef(floatingAnchorElem);
+    }
+  };
+
+  // Debug logging
+  console.log("actualFloatingAnchorElem:", actualFloatingAnchorElem);
+  console.log("actualIsSmallWidthViewport:", actualIsSmallWidthViewport);
+  console.log(
+    "Should render toolbar:",
+    !!(actualFloatingAnchorElem && !actualIsSmallWidthViewport)
+  );
 
   return (
     <div className="relative">
@@ -74,11 +122,13 @@ export default function Editor({
       <HistoryPlugin />
       {/* Mock document content */}
       <InitialContentPlugin />
-      {/* Future floating plugins can go here when floatingAnchorElem is ready */}
-      {floatingAnchorElem && !isSmallWidthViewport && (
+      {/* Floating plugins */}
+      {actualFloatingAnchorElem && !actualIsSmallWidthViewport && (
         <>
-          {/* Add floating plugins here when you create them */}
-          {/* <FloatingTextFormatToolbarPlugin anchorElem={floatingAnchorElem} /> */}
+          {console.log("Rendering FloatingTextFormatToolbarPlugin")}
+          <FloatingTextFormatToolbarPlugin
+            anchorElem={actualFloatingAnchorElem}
+          />
         </>
       )}
     </div>

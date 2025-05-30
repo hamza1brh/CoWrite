@@ -141,7 +141,7 @@ During my tenure at **Cognitus** (SAP Gold Partner), I led the integration of Le
 ### **Custom Lexical Plugin Development**
 ```typescript
 // Example: Custom AI Assistant Plugin
-export function AIAssistantPlugin(): JSX.Element {
+export function AIAssistantPlugin(): React.JSX.Element {
   const [editor] = useLexicalComposerContext();
   
   const handleAIGeneration = useCallback(() => {
