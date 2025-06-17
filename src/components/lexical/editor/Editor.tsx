@@ -17,10 +17,8 @@ import { TRANSFORMERS } from "@lexical/markdown";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalEditable } from "@lexical/react/useLexicalEditable";
 import { useState, useEffect } from "react";
-import { useState, useEffect } from "react";
 
 import InitialContentPlugin from "./InitialContentPlugin";
-import FloatingTextFormatToolbarPlugin from "../plugins/FloatingTextFormatToolbarPlugin";
 import FloatingTextFormatToolbarPlugin from "../plugins/FloatingTextFormatToolbarPlugin";
 
 const placeholder = "Start writing your document...";
