@@ -6,7 +6,10 @@ import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import LexicalEditor from "@/components/lexical/editor/LexicalEditor";
-import EditorHeader from "@/components/documents/EditorHeader";
+import EditorHeader, {
+  type DocumentMode,
+  type UserRole,
+} from "@/components/documents/EditorHeader";
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 
@@ -27,6 +30,10 @@ export default function DocumentEditor() {
   // UI State
   const [showComments, setShowComments] = useState(false);
   const [showAI, setShowAI] = useState(false);
+
+  // New state for mode management
+  const [mode, setMode] = useState<DocumentMode>("viewing");
+  const [userRole, setUserRole] = useState<UserRole>("editor"); // This will come from auth later
 
   // Data State
   const [document, setDocument] = useState<DocumentData | null>(null);
@@ -64,6 +71,11 @@ export default function DocumentEditor() {
         setComments(commentsData);
         setCollaborators(collaboratorsData);
         setAiSuggestions(aiData);
+
+        // Auto-switch to editing mode if user can edit
+        if (userRole === "owner" || userRole === "editor") {
+          setMode("editing");
+        }
       } catch (err) {
         setError("Failed to load document data");
         console.error("Error fetching document data:", err);
@@ -73,18 +85,35 @@ export default function DocumentEditor() {
     };
 
     fetchData();
-  }, [id]);
+  }, [id, userRole]);
 
   // Handle document title change
   const handleTitleChange = async (newTitle: string) => {
-    if (!document) return;
+    if (!document) return; // Only check if document exists
 
     try {
+      // Update local state immediately for responsive UI
+      setDocument(prev => (prev ? { ...prev, title: newTitle } : null));
+
+      // Update in backend/mock data
       const updatedDoc = await updateDocument(document.id, { title: newTitle });
-      setDocument(updatedDoc);
+
+      // Sync with updated document if needed (optional, since we already updated locally)
+      // setDocument(updatedDoc);
     } catch (err) {
       console.error("Failed to update document title:", err);
+      // Revert on error
+      if (document) {
+        setDocument(prev => (prev ? { ...prev, title: document.title } : null));
+      }
     }
+  };
+
+  // Handle mode change
+  const handleModeChange = (newMode: DocumentMode) => {
+    setMode(newMode);
+    // You can add additional logic here, like showing notifications
+    console.log(`Switched to ${newMode} mode`);
   };
 
   // Calculate unread comments count
@@ -152,6 +181,10 @@ export default function DocumentEditor() {
             onToggleAI={() => setShowAI(!showAI)}
             onToggleComments={() => setShowComments(!showComments)}
             unreadCommentsCount={unreadCommentsCount}
+            mode={mode}
+            userRole={userRole}
+            onModeChange={handleModeChange}
+            isDocumentOwner={userRole === "owner"}
           />
 
           <div className="flex flex-1 overflow-hidden">
@@ -163,10 +196,11 @@ export default function DocumentEditor() {
                 <div className="mx-auto max-w-3xl rounded-lg border border-slate-200/30 dark:border-slate-700/20 sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl">
                   {/* Lexical Editor */}
                   <LexicalEditor
-                    showToolbar={true}
+                    showToolbar={mode === "editing"}
                     className="min-h-full"
                     documentId={document.id}
                     key={document.id}
+                    readOnly={mode === "viewing"}
                   />
                 </div>
               </div>
