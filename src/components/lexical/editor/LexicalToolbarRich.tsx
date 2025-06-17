@@ -94,7 +94,7 @@ function dropDownActiveClass(active: boolean) {
 }
 
 // Font dropdown component using shadcn/ui Select
-function FontDropDown({
+export function FontDropDown({
   editor,
   value,
   style,
@@ -104,7 +104,7 @@ function FontDropDown({
   value: string;
   style: string;
   disabled?: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   const handleValueChange = useCallback(
     (selectedValue: string) => {
       editor.update(() => {
@@ -141,7 +141,7 @@ function FontDropDown({
 }
 
 // FontSize component exactly from playground
-function FontSize({
+export function FontSize({
   selectionFontSize,
   editor,
   disabled = false,
@@ -149,7 +149,7 @@ function FontSize({
   selectionFontSize: string;
   editor: any;
   disabled?: boolean;
-}): JSX.Element {
+}): React.JSX.Element {
   const [inputValue, setInputValue] = useState<string>(selectionFontSize);
   const [inputFontSize, setInputFontSize] = useState<string>(selectionFontSize);
 

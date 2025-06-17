@@ -117,7 +117,7 @@ export function AppSidebar() {
                     <FileText className="size-4 text-white" />
                   </div>
                   <div className="grid flex-1 text-left text-sm leading-tight">
-                    <span className="truncate font-semibold">DocFlow</span>
+                    <span className="truncate font-semibold">CoWrite</span>
                     <span className="truncate text-xs">Personal Workspace</span>
                   </div>
                   <ChevronDown className="ml-auto" />
