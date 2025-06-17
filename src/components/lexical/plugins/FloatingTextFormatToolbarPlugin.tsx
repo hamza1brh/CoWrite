@@ -67,9 +67,7 @@ function setFloatingElemPosition(
     left = editorScrollerRect.right - floatingElemRect.width - 10;
   }
 
-  top -= anchorElementRect.top;
-  left -= anchorElementRect.left;
-
+  // Convert to absolute positioning relative to document
   floatingElem.style.opacity = "1";
   floatingElem.style.transform = `translate(${left}px, ${top}px)`;
 }
@@ -108,6 +106,11 @@ function TextFormatFloatingToolbar({
     ) {
       const rangeRect = getDOMRangeRect(nativeSelection, rootElement);
       setFloatingElemPosition(rangeRect, popupCharStylesEditorElem, anchorElem);
+    } else {
+      // Hide toolbar when no valid selection
+      popupCharStylesEditorElem.style.opacity = "0";
+      popupCharStylesEditorElem.style.transform =
+        "translate(-10000px, -10000px)";
     }
   }, [editor, anchorElem]);
 
@@ -159,18 +162,19 @@ function TextFormatFloatingToolbar({
     <div
       ref={popupCharStylesEditorRef}
       style={{
-        position: "absolute",
+        position: "fixed",
         top: 0,
         left: 0,
-        zIndex: 10,
+        zIndex: 1000,
         opacity: 0,
-        backgroundColor: "white",
+        backgroundColor: "var(--bg-primary, white)",
         boxShadow: "0 2px 8px rgba(0, 0, 0, 0.15)",
         borderRadius: "8px",
         padding: "8px",
         display: "flex",
         gap: "4px",
-        border: "1px solid #e1e5e9",
+        border: "1px solid var(--border-color, #e1e5e9)",
+        pointerEvents: "auto",
       }}
     >
       <button
@@ -182,11 +186,25 @@ function TextFormatFloatingToolbar({
           padding: "8px",
           border: "none",
           borderRadius: "4px",
-          backgroundColor: isBold ? "#e3f2fd" : "transparent",
+          backgroundColor: isBold
+            ? "var(--accent-primary, #e3f2fd)"
+            : "transparent",
           cursor: "pointer",
           fontWeight: "bold",
+          color: "var(--text-primary, #000)",
+          transition: "background-color 0.2s ease",
         }}
         aria-label="Format text as bold"
+        onMouseEnter={e => {
+          if (!isBold) {
+            e.currentTarget.style.backgroundColor = "var(--bg-hover, #f5f5f5)";
+          }
+        }}
+        onMouseLeave={e => {
+          if (!isBold) {
+            e.currentTarget.style.backgroundColor = "transparent";
+          }
+        }}
       >
         B
       </button>
@@ -199,11 +217,25 @@ function TextFormatFloatingToolbar({
           padding: "8px",
           border: "none",
           borderRadius: "4px",
-          backgroundColor: isItalic ? "#e3f2fd" : "transparent",
+          backgroundColor: isItalic
+            ? "var(--accent-primary, #e3f2fd)"
+            : "transparent",
           cursor: "pointer",
           fontStyle: "italic",
+          color: "var(--text-primary, #000)",
+          transition: "background-color 0.2s ease",
         }}
         aria-label="Format text as italics"
+        onMouseEnter={e => {
+          if (!isItalic) {
+            e.currentTarget.style.backgroundColor = "var(--bg-hover, #f5f5f5)";
+          }
+        }}
+        onMouseLeave={e => {
+          if (!isItalic) {
+            e.currentTarget.style.backgroundColor = "transparent";
+          }
+        }}
       >
         I
       </button>
@@ -216,11 +248,25 @@ function TextFormatFloatingToolbar({
           padding: "8px",
           border: "none",
           borderRadius: "4px",
-          backgroundColor: isUnderline ? "#e3f2fd" : "transparent",
+          backgroundColor: isUnderline
+            ? "var(--accent-primary, #e3f2fd)"
+            : "transparent",
           cursor: "pointer",
           textDecoration: "underline",
+          color: "var(--text-primary, #000)",
+          transition: "background-color 0.2s ease",
         }}
         aria-label="Format text to underlined"
+        onMouseEnter={e => {
+          if (!isUnderline) {
+            e.currentTarget.style.backgroundColor = "var(--bg-hover, #f5f5f5)";
+          }
+        }}
+        onMouseLeave={e => {
+          if (!isUnderline) {
+            e.currentTarget.style.backgroundColor = "transparent";
+          }
+        }}
       >
         U
       </button>
@@ -248,37 +294,32 @@ function useFloatingTextFormatToolbar(
       const nativeSelection = window.getSelection();
       const rootElement = editor.getRootElement();
 
+      // Check if we have a valid selection
       if (
-        nativeSelection !== null &&
-        (!$isRangeSelection(selection) ||
-          rootElement === null ||
-          !rootElement.contains(nativeSelection.anchorNode))
+        !$isRangeSelection(selection) ||
+        selection.isCollapsed() || // Don't show for collapsed selections
+        !nativeSelection ||
+        nativeSelection.isCollapsed ||
+        !rootElement ||
+        !rootElement.contains(nativeSelection.anchorNode)
       ) {
         setIsText(false);
         return;
       }
 
-      if (!$isRangeSelection(selection)) {
-        return;
-      }
-
       const node = getSelectedNode(selection);
+      const textContent = selection.getTextContent();
 
-      // Update text format
+      // Update text format states
       setIsBold(selection.hasFormat("bold"));
       setIsItalic(selection.hasFormat("italic"));
       setIsUnderline(selection.hasFormat("underline"));
 
-      if (selection.getTextContent() !== "") {
-        setIsText($isTextNode(node) || $isParagraphNode(node));
+      // Show toolbar if there's actual text content selected
+      if (textContent.trim() !== "") {
+        setIsText(true);
       } else {
         setIsText(false);
-      }
-
-      const rawTextContent = selection.getTextContent().replace(/\n/g, "");
-      if (!selection.isCollapsed() && rawTextContent === "") {
-        setIsText(false);
-        return;
       }
     });
   }, [editor]);
@@ -307,6 +348,7 @@ function useFloatingTextFormatToolbar(
     return null;
   }
 
+  // Should render into document.body !
   return createPortal(
     <TextFormatFloatingToolbar
       editor={editor}
@@ -315,7 +357,7 @@ function useFloatingTextFormatToolbar(
       isItalic={isItalic}
       isUnderline={isUnderline}
     />,
-    anchorElem
+    document.body // Changed from anchorElem to document.body
   );
 }
 

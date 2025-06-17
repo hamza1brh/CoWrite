@@ -17,8 +17,10 @@ import { TRANSFORMERS } from "@lexical/markdown";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalEditable } from "@lexical/react/useLexicalEditable";
 import { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 
 import InitialContentPlugin from "./InitialContentPlugin";
+import FloatingTextFormatToolbarPlugin from "../plugins/FloatingTextFormatToolbarPlugin";
 import FloatingTextFormatToolbarPlugin from "../plugins/FloatingTextFormatToolbarPlugin";
 
 const placeholder = "Start writing your document...";
@@ -27,12 +29,14 @@ interface EditorContentProps {
   floatingAnchorElem?: HTMLDivElement | null;
   isSmallWidthViewport?: boolean;
   onRef?: (elem: HTMLDivElement) => void;
+  readOnly?: boolean;
 }
 
 export default function Editor({
   floatingAnchorElem: externalFloatingAnchorElem,
   isSmallWidthViewport: externalIsSmallWidthViewport,
   onRef: externalOnRef,
+  readOnly = false,
 }: EditorContentProps) {
   const isEditable = useLexicalEditable();
 
@@ -64,7 +68,6 @@ export default function Editor({
     };
   }, []);
 
-  // Ref callback to set the floating anchor element
   const onRef = (floatingAnchorElem: HTMLDivElement) => {
     if (floatingAnchorElem !== null) {
       setFloatingAnchorElem(floatingAnchorElem);
@@ -73,14 +76,6 @@ export default function Editor({
       externalOnRef(floatingAnchorElem);
     }
   };
-
-  // Debug logging
-  console.log("actualFloatingAnchorElem:", actualFloatingAnchorElem);
-  console.log("actualIsSmallWidthViewport:", actualIsSmallWidthViewport);
-  console.log(
-    "Should render toolbar:",
-    !!(actualFloatingAnchorElem && !actualIsSmallWidthViewport)
-  );
 
   return (
     <div className="relative">
@@ -122,10 +117,9 @@ export default function Editor({
       <HistoryPlugin />
       {/* Mock document content */}
       <InitialContentPlugin />
-      {/* Floating plugins */}
-      {actualFloatingAnchorElem && !actualIsSmallWidthViewport && (
+      {/* Floating plugins - Only show when not readOnly */}
+      {actualFloatingAnchorElem && !actualIsSmallWidthViewport && !readOnly && (
         <>
-          {console.log("Rendering FloatingTextFormatToolbarPlugin")}
           <FloatingTextFormatToolbarPlugin
             anchorElem={actualFloatingAnchorElem}
           />

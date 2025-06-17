@@ -25,41 +25,18 @@ import { lexicalTheme } from "@/lib/lexical-theme";
 import type { UserProfile, ActiveUserProfile } from "@/lib/types/collaboration";
 import LexicalToolbarRich from "./LexicalToolbarRich";
 
-const editorConfig = {
-  editorState: null,
-  namespace: "CoWrite Collaborative Editor",
-  nodes: [
-    HeadingNode,
-    ListNode,
-    ListItemNode,
-    QuoteNode,
-    CodeNode,
-    CodeHighlightNode,
-    TableNode,
-    TableCellNode,
-    TableRowNode,
-    AutoLinkNode,
-    LinkNode,
-    HashtagNode,
-    OverflowNode,
-    HorizontalRuleNode,
-  ],
-  onError(error: Error) {
-    throw error;
-  },
-  theme: lexicalTheme,
-};
-
 interface LexicalEditorProps {
   className?: string;
   showToolbar?: boolean;
   documentId?: string;
+  readOnly?: boolean; // ✅ Add readOnly prop
 }
 
 export default function LexicalEditor({
   className,
   showToolbar = false,
   documentId = "lexical/react-rich-collab",
+  readOnly = false, // ✅ Default to false
 }: LexicalEditorProps) {
   const [userProfile, setUserProfile] = useState<UserProfile>(() => ({
     name: "User " + Math.floor(Math.random() * 1000),
@@ -140,8 +117,42 @@ export default function LexicalEditor({
     []
   );
 
+  // ✅ Create editor config with readOnly support
+  const editorConfig = {
+    editorState: null,
+    namespace: "CoWrite Collaborative Editor",
+    nodes: [
+      HeadingNode,
+      ListNode,
+      ListItemNode,
+      QuoteNode,
+      CodeNode,
+      CodeHighlightNode,
+      TableNode,
+      TableCellNode,
+      TableRowNode,
+      AutoLinkNode,
+      LinkNode,
+      HashtagNode,
+      OverflowNode,
+      HorizontalRuleNode,
+    ],
+    onError(error: Error) {
+      throw error;
+    },
+    theme: lexicalTheme,
+    editable: !readOnly, // ✅ Make editor read-only based on prop
+  };
+
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative",
+        readOnly && "opacity-90", // ✅ Slightly dim in read-only mode
+        className
+      )}
+    >
       <UserControlPanel
         userProfile={userProfile}
         onUserProfileChange={setUserProfile}
@@ -160,10 +171,36 @@ export default function LexicalEditor({
           cursorsContainerRef={containerRef}
         />
 
-        {/* Toolbar */}
-        {showToolbar && (
+        {/* Toolbar - Only show when not read-only and showToolbar is true */}
+        {showToolbar && !readOnly && (
           <div className="surface-elevated mb-4 border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
             <LexicalToolbarRich />
+          </div>
+        )}
+
+        {/* ✅ Read-only indicator */}
+        {readOnly && (
+          <div className="mb-4 flex items-center justify-center rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+            <svg
+              className="mr-2 h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+              />
+            </svg>
+            Viewing Mode - Document is read-only
           </div>
         )}
 
@@ -172,6 +209,7 @@ export default function LexicalEditor({
           floatingAnchorElem={floatingAnchorElem}
           isSmallWidthViewport={isSmallWidthViewport}
           onRef={onRef}
+          readOnly={readOnly} // ✅ Pass readOnly to Editor component
         />
       </LexicalComposer>
     </div>
