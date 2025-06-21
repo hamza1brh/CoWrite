@@ -12,8 +12,8 @@ import EditorHeader, {
 } from "@/components/documents/EditorHeader";
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
+import { useUser } from "@clerk/nextjs";
 
-// Fixed data imports - use the correct files
 import {
   getDocument,
   updateDocument,
@@ -26,12 +26,13 @@ import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
 export default function DocumentEditor() {
   const router = useRouter();
   const { id } = router.query;
+  const { user, isLoaded } = useUser();
 
   // UI State
   const [showComments, setShowComments] = useState(false);
   const [showAI, setShowAI] = useState(false);
 
-  // New state for mode management
+  // Document editing mode management
   const [mode, setMode] = useState<DocumentMode>("viewing");
   const [userRole, setUserRole] = useState<UserRole>("editor"); // This will come from auth later
 
@@ -45,9 +46,16 @@ export default function DocumentEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Redirect if not authenticated
+  useEffect(() => {
+    if (isLoaded && !user) {
+      router.replace("/welcome");
+    }
+  }, [isLoaded, user, router]);
+
   // Fetch data on mount and when ID changes
   useEffect(() => {
-    if (!id || typeof id !== "string") return;
+    if (!id || typeof id !== "string" || !isLoaded || !user) return;
 
     const fetchData = async () => {
       try {
@@ -85,21 +93,17 @@ export default function DocumentEditor() {
     };
 
     fetchData();
-  }, [id, userRole]);
+  }, [id, userRole, isLoaded, user]);
 
   // Handle document title change
   const handleTitleChange = async (newTitle: string) => {
-    if (!document) return; // Only check if document exists
+    if (!document) return;
 
     try {
-      // Update local state immediately for responsive UI
       setDocument(prev => (prev ? { ...prev, title: newTitle } : null));
 
       // Update in backend/mock data
       const updatedDoc = await updateDocument(document.id, { title: newTitle });
-
-      // Sync with updated document if needed (optional, since we already updated locally)
-      // setDocument(updatedDoc);
     } catch (err) {
       console.error("Failed to update document title:", err);
       // Revert on error
@@ -112,12 +116,19 @@ export default function DocumentEditor() {
   // Handle mode change
   const handleModeChange = (newMode: DocumentMode) => {
     setMode(newMode);
-    // You can add additional logic here, like showing notifications
-    console.log(`Switched to ${newMode} mode`);
   };
 
   // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
+
+  // Show loading while checking auth
+  if (!isLoaded || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   // Loading state
   if (loading) {

@@ -5,6 +5,8 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import { useUser } from "@clerk/nextjs";
+import { useRouter } from "next/router";
 
 // Components
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
@@ -19,13 +21,24 @@ import { AISuggestions } from "@/components/dashboard/AISuggestions";
 import { getDocuments, type Document } from "@/data/mockDocuments";
 
 export default function Dashboard() {
+  const { user, isLoaded } = useUser();
+  const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Redirect unauthenticated users to welcome page
+  useEffect(() => {
+    if (isLoaded && !user) {
+      router.replace("/welcome");
+    }
+  }, [isLoaded, user, router]);
+
   // Fetch documents on mount
   useEffect(() => {
+    if (!isLoaded || !user) return;
+
     const fetchDocuments = async () => {
       try {
         const docs = await getDocuments();
@@ -38,7 +51,16 @@ export default function Dashboard() {
     };
 
     fetchDocuments();
-  }, []);
+  }, [isLoaded, user]);
+
+  // Show loading while checking auth or redirecting
+  if (!isLoaded || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
 
   // Filter documents based on search query
   const filteredDocuments = documents.filter(doc =>
@@ -60,13 +82,14 @@ export default function Dashboard() {
     visible: { opacity: 1, y: 0 },
   };
 
+  // Show loading state for documents
   if (loading) {
     return (
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
           <div className="light-gradient-bg dark:dark-gradient-bg min-h-screen">
-            <DashboardHeader />
+            <DashboardHeader userName={user?.firstName || "User"} />
             <main className="container mx-auto px-6 py-8">
               <div className="flex h-64 items-center justify-center">
                 <div className="text-center">
@@ -88,7 +111,7 @@ export default function Dashboard() {
       <AppSidebar />
       <SidebarInset>
         <div className="light-gradient-bg dark:dark-gradient-bg min-h-screen">
-          <DashboardHeader userName="John" />
+          <DashboardHeader userName={user?.firstName || "User"} />
 
           {/* Main Content */}
           <main className="container mx-auto px-6 py-8">
@@ -100,7 +123,7 @@ export default function Dashboard() {
               transition={{ duration: 0.6 }}
             >
               <h2 className="mb-4 text-4xl font-bold text-slate-900 dark:text-white">
-                Welcome back, John
+                Welcome back, {user?.firstName || "User"}
               </h2>
               <p className="mb-8 text-xl text-slate-600 dark:text-slate-300">
                 Continue working on your documents or start something new
