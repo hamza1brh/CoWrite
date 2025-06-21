@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { UserButton } from "@clerk/nextjs";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 
@@ -9,7 +9,7 @@ interface DashboardHeaderProps {
   userName?: string;
 }
 
-export function DashboardHeader({ userName = "JD" }: DashboardHeaderProps) {
+export function DashboardHeader({ userName = "User" }: DashboardHeaderProps) {
   return (
     <header className="glass-effect sticky top-0 z-50 border-b border-slate-200/50 dark:border-slate-700/50">
       <div className="container mx-auto px-6 py-4">
@@ -26,13 +26,19 @@ export function DashboardHeader({ userName = "JD" }: DashboardHeaderProps) {
 
           <div className="flex items-center space-x-4">
             <ThemeToggle />
-            <Avatar className="h-8 w-8 ring-2 ring-blue-100 dark:ring-slate-700">
-              <AvatarImage
-                src="/placeholder.svg?height=32&width=32"
-                alt="User avatar"
-              />
-              <AvatarFallback>{userName}</AvatarFallback>
-            </Avatar>
+            <UserButton
+              afterSignOutUrl="/"
+              appearance={{
+                elements: {
+                  avatarBox: "h-8 w-8 ring-2 ring-blue-100 dark:ring-slate-700",
+                  userButtonPopoverCard: "shadow-lg border-0",
+                  userButtonPopoverActions: "p-2",
+                  userButtonPopoverActionButton:
+                    "rounded-lg hover:bg-slate-100 dark:hover:bg-slate-700",
+                  userButtonPopoverFooter: "hidden", // Hide the footer if you want
+                },
+              }}
+            />
           </div>
         </div>
       </div>

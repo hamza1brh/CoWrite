@@ -44,3 +44,7 @@ next-env.d.ts
 # OS
 Thumbs.db
 .env
+.env.local
+.env*.local
+
+/generated/prisma
