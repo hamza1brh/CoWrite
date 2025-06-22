@@ -17,16 +17,38 @@ import {
 import { DocumentCard } from "@/components/dashboard/DocumentCard";
 import { AISuggestions } from "@/components/dashboard/AISuggestions";
 
-// Data
-import { getDocuments, type Document } from "@/data/mockDocuments";
+// Types
+import { DocumentWithOwner, DocumentCardData } from "@/lib/types/api";
+
+function transformDocumentForCard(doc: DocumentWithOwner): DocumentCardData {
+  return {
+    id: doc.id,
+    title: doc.title,
+    preview: doc.content
+      ? typeof doc.content === "string"
+        ? doc.content.substring(0, 100) + "..."
+        : "Document content..."
+      : "No content yet...",
+    lastModified: new Date(doc.updatedAt).toLocaleDateString(),
+    owner: {
+      firstName: doc.owner.firstName,
+      lastName: doc.owner.lastName,
+      imageUrl: doc.owner.imageUrl,
+    },
+    collaborators: [], // Will be populated when we implement collaborators
+    isStarred: false, // Will be implemented later
+    comments: doc._count.comments,
+  };
+}
 
 export default function Dashboard() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] = useState<DocumentCardData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
 
   // Redirect unauthenticated users to welcome page
   useEffect(() => {
@@ -35,14 +57,33 @@ export default function Dashboard() {
     }
   }, [isLoaded, user, router]);
 
-  // Fetch documents on mount
+  // Fetch documents from API
   useEffect(() => {
     if (!isLoaded || !user) return;
 
     const fetchDocuments = async () => {
       try {
-        const docs = await getDocuments();
-        setDocuments(docs);
+        console.log("Fetching documents...");
+        const response = await fetch("/api/documents");
+        console.log("Response status:", response.status);
+        console.log("Response ok:", response.ok);
+
+        if (response.ok) {
+          const apiDocs: DocumentWithOwner[] = await response.json();
+          console.log("API returned documents:", apiDocs);
+          console.log("Number of documents:", apiDocs.length);
+
+          const transformedDocs = apiDocs.map(transformDocumentForCard);
+          console.log("Transformed documents:", transformedDocs);
+          setDocuments(transformedDocs);
+        } else {
+          const errorText = await response.text();
+          console.error(
+            "Failed to fetch documents:",
+            response.status,
+            errorText
+          );
+        }
       } catch (error) {
         console.error("Failed to fetch documents:", error);
       } finally {
@@ -52,6 +93,40 @@ export default function Dashboard() {
 
     fetchDocuments();
   }, [isLoaded, user]);
+
+  // Create new document
+  const handleCreateDocument = async () => {
+    setCreating(true);
+    try {
+      console.log("Creating document...");
+      const response = await fetch("/api/documents", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: "Untitled Document",
+        }),
+      });
+      console.log("wa33333333");
+      console.log("Response status:", response.status);
+      console.log("Response ok:", response.ok);
+
+      if (response.ok) {
+        const newDoc: DocumentWithOwner = await response.json();
+        console.log("Created document:", newDoc);
+        // Redirect to the new document editor
+        router.push(`/editor/${newDoc.id}`);
+      } else {
+        const errorData = await response.json();
+        console.error("Failed to create document:", errorData);
+      }
+    } catch (error) {
+      console.error("Error creating document:", error);
+    } finally {
+      setCreating(false);
+    }
+  };
 
   // Show loading while checking auth or redirecting
   if (!isLoaded || !user) {
@@ -133,15 +208,24 @@ export default function Dashboard() {
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >
-                <Link href="/editor/new">
-                  <Button
-                    size="lg"
-                    className="button-gradient rounded-xl px-8 py-3 text-white shadow-elevation-2 transition-all duration-300 hover:shadow-elevation-3"
-                  >
-                    <Plus className="mr-2 h-5 w-5" />
-                    Create New Document
-                  </Button>
-                </Link>
+                <Button
+                  size="lg"
+                  onClick={handleCreateDocument}
+                  disabled={creating}
+                  className="button-gradient rounded-xl px-8 py-3 text-white shadow-elevation-2 transition-all duration-300 hover:shadow-elevation-3 disabled:opacity-50"
+                >
+                  {creating ? (
+                    <>
+                      <div className="mr-2 h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                      Creating...
+                    </>
+                  ) : (
+                    <>
+                      <Plus className="mr-2 h-5 w-5" />
+                      Create New Document
+                    </>
+                  )}
+                </Button>
               </motion.div>
             </motion.div>
 
@@ -182,7 +266,7 @@ export default function Dashboard() {
                 <p className="text-lg text-slate-600 dark:text-slate-400">
                   {searchQuery
                     ? `No documents found matching "${searchQuery}"`
-                    : "No documents found"}
+                    : "No documents found. Create your first document!"}
                 </p>
               </motion.div>
             )}

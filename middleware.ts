@@ -4,13 +4,17 @@ const isProtectedRoute = createRouteMatcher([
   "/",
   "/editor(.*)",
   "/api/documents(.*)",
+  "/api/comments(.*)",
+  "/api/collaborators(.*)",
+  "/api/users(.*)",
 ]);
 
 const isPublicRoute = createRouteMatcher([
-  "/api/webhooks(.*)",
   "/welcome",
   "/sign-in(.*)",
   "/sign-up(.*)",
+  "/api/webhooks(.*)",
+  "/api/test-db(.*)",
 ]);
 
 export default clerkMiddleware(async (auth, req) => {
@@ -19,10 +23,7 @@ export default clerkMiddleware(async (auth, req) => {
   }
 
   if (isProtectedRoute(req)) {
-    const session = await auth();
-    if (!session.isAuthenticated) {
-      return Response.redirect("/sign-in");
-    }
+    await auth.protect();
   }
 });
 

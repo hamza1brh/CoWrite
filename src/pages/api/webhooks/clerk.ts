@@ -71,7 +71,10 @@ export default async function handler(
     }
   } catch (dbError) {
     console.error("Database error:", dbError);
-    return res.status(500).json({ error: "Database sync failed" });
+    return res.status(500).json({
+      error:
+        dbError instanceof Error ? dbError.message : "Database sync failed",
+    });
   }
 
   res.status(200).json({ received: true });
