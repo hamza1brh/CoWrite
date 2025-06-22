@@ -13,6 +13,7 @@ import { ClickableLinkPlugin } from "@lexical/react/LexicalClickableLinkPlugin";
 import { HorizontalRulePlugin } from "@lexical/react/LexicalHorizontalRulePlugin";
 import { TablePlugin } from "@lexical/react/LexicalTablePlugin";
 import { HashtagPlugin } from "@lexical/react/LexicalHashtagPlugin";
+import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { TRANSFORMERS } from "@lexical/markdown";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalEditable } from "@lexical/react/useLexicalEditable";
@@ -28,6 +29,8 @@ interface EditorContentProps {
   isSmallWidthViewport?: boolean;
   onRef?: (elem: HTMLDivElement) => void;
   readOnly?: boolean;
+  onContentChange?: (editorState: any) => void;
+  hasInitialContent?: boolean;
 }
 
 export default function Editor({
@@ -35,6 +38,8 @@ export default function Editor({
   isSmallWidthViewport: externalIsSmallWidthViewport,
   onRef: externalOnRef,
   readOnly = false,
+  onContentChange,
+  hasInitialContent = false,
 }: EditorContentProps) {
   const isEditable = useLexicalEditable();
 
@@ -96,6 +101,7 @@ export default function Editor({
         placeholder={null}
         ErrorBoundary={LexicalErrorBoundary}
       />
+      {onContentChange && <OnChangePlugin onChange={onContentChange} />}
       {/* Core Plugins */}
       <AutoFocusPlugin />
       <HashtagPlugin />
@@ -114,7 +120,7 @@ export default function Editor({
       {/* History Plugin for non-collaborative mode */}
       <HistoryPlugin />
       {/* Mock document content */}
-      <InitialContentPlugin />
+      {!hasInitialContent && <InitialContentPlugin />}
       {/* Floating plugins - Only show when not readOnly */}
       {actualFloatingAnchorElem && !actualIsSmallWidthViewport && !readOnly && (
         <>

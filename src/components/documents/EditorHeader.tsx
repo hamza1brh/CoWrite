@@ -48,18 +48,19 @@ type UserRole = "owner" | "editor" | "viewer";
 
 interface EditorHeaderProps {
   documentTitle: string;
-  onTitleChange: (title: string) => void;
-  collaborators: Collaborator[];
+  onTitleChange: (newTitle: string) => void;
+  collaborators: any[];
   showAI: boolean;
   showComments: boolean;
   onToggleAI: () => void;
   onToggleComments: () => void;
   unreadCommentsCount: number;
-
   mode: DocumentMode;
   userRole: UserRole;
   onModeChange: (mode: DocumentMode) => void;
-  isDocumentOwner?: boolean;
+  isDocumentOwner: boolean;
+  saveStatus?: "saved" | "saving" | "error"; // Add this
+  lastSaved?: Date | null; // Add this
 }
 
 export default function EditorHeader({
@@ -210,7 +211,7 @@ export default function EditorHeader({
                       <AvatarFallback className="text-xs">
                         {collaborator.name
                           .split(" ")
-                          .map(n => n[0])
+                          .map((n: any[]) => n[0])
                           .join("")}
                       </AvatarFallback>
                     </Avatar>

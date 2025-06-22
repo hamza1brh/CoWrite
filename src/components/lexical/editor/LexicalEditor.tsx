@@ -26,17 +26,21 @@ import type { UserProfile, ActiveUserProfile } from "@/lib/types/collaboration";
 import LexicalToolbarRich from "./LexicalToolbarRich";
 
 interface LexicalEditorProps {
-  className?: string;
   showToolbar?: boolean;
+  className?: string;
   documentId?: string;
-  readOnly?: boolean; // ✅ Add readOnly prop
+  readOnly?: boolean;
+  initialContent?: any;
+  onContentChange?: (editorState: any) => void;
 }
 
 export default function LexicalEditor({
   className,
   showToolbar = false,
   documentId = "lexical/react-rich-collab",
-  readOnly = false, // ✅ Default to false
+  readOnly = false,
+  initialContent = null, // ✅ Accept initial content
+  onContentChange, // ✅ Accept content change handler
 }: LexicalEditorProps) {
   const [userProfile, setUserProfile] = useState<UserProfile>(() => ({
     name: "User " + Math.floor(Math.random() * 1000),
@@ -117,9 +121,16 @@ export default function LexicalEditor({
     []
   );
 
-  // ✅ Create editor config with readOnly support
+  const createInitialEditorState = () => {
+    if (initialContent) {
+      return JSON.stringify(initialContent);
+    }
+
+    return null;
+  };
+
   const editorConfig = {
-    editorState: null,
+    editorState: createInitialEditorState(),
     namespace: "CoWrite Collaborative Editor",
     nodes: [
       HeadingNode,
@@ -141,17 +152,13 @@ export default function LexicalEditor({
       throw error;
     },
     theme: lexicalTheme,
-    editable: !readOnly, // ✅ Make editor read-only based on prop
+    editable: !readOnly,
   };
 
   return (
     <div
       ref={containerRef}
-      className={cn(
-        "relative",
-        readOnly && "opacity-90", // ✅ Slightly dim in read-only mode
-        className
-      )}
+      className={cn("relative", readOnly && "opacity-90", className)}
     >
       <UserControlPanel
         userProfile={userProfile}
@@ -178,7 +185,7 @@ export default function LexicalEditor({
           </div>
         )}
 
-        {/* ✅ Read-only indicator */}
+        {/* Read-only indicator */}
         {readOnly && (
           <div className="mb-4 flex items-center justify-center rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
             <svg
@@ -204,12 +211,14 @@ export default function LexicalEditor({
           </div>
         )}
 
-        {/* ✅ All editor content that needs Lexical context goes in this child component */}
+        {/* Editor component with real content */}
         <Editor
           floatingAnchorElem={floatingAnchorElem}
           isSmallWidthViewport={isSmallWidthViewport}
           onRef={onRef}
-          readOnly={readOnly} // ✅ Pass readOnly to Editor component
+          readOnly={readOnly}
+          onContentChange={onContentChange}
+          hasInitialContent={!!initialContent}
         />
       </LexicalComposer>
     </div>

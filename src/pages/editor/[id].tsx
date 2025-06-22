@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
-import { motion } from "framer-motion";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import LexicalEditor from "@/components/lexical/editor/LexicalEditor";
@@ -62,20 +61,43 @@ export default function DocumentEditor() {
         setLoading(true);
         setError(null);
 
-        const [docData, commentsData, collaboratorsData, aiData] =
-          await Promise.all([
-            getDocument(id),
-            getComments(id),
-            getCollaborators(id),
-            getAISuggestions(id),
-          ]);
+        // Fetch real document from API
+        const response = await fetch(`/api/documents/${id}`);
 
-        if (!docData) {
-          setError("Document not found");
+        if (!response.ok) {
+          if (response.status === 404) {
+            setError("Document not found");
+          } else {
+            setError("Failed to load document");
+          }
           return;
         }
 
-        setDocument(docData);
+        const docData = await response.json();
+        console.log("Loaded document:", docData);
+
+        // Transform API response to match existing DocumentData interface
+        const transformedDoc: DocumentData = {
+          id: docData.id,
+          title: docData.title,
+          content: docData.content,
+          lastModified: new Date(docData.updatedAt).toLocaleDateString(),
+          createdAt: docData.createdAt
+            ? new Date(docData.createdAt).toLocaleDateString()
+            : "",
+          ownerId: docData.ownerId ?? "",
+          collaboratorIds: docData.collaboratorIds ?? [],
+        };
+
+        setDocument(transformedDoc);
+
+        // Keep mock data for other features for now
+        const [commentsData, collaboratorsData, aiData] = await Promise.all([
+          getComments(id),
+          getCollaborators(id),
+          getAISuggestions(id),
+        ]);
+
         setComments(commentsData);
         setCollaborators(collaboratorsData);
         setAiSuggestions(aiData);
@@ -116,6 +138,26 @@ export default function DocumentEditor() {
   // Handle mode change
   const handleModeChange = (newMode: DocumentMode) => {
     setMode(newMode);
+  };
+
+  // Handle content change
+  const handleContentChange = async (newContent: string) => {
+    if (!document) return;
+
+    try {
+      setDocument(prev => (prev ? { ...prev, content: newContent } : null));
+
+      // Update in backend/mock data
+      await updateDocument(document.id, { content: newContent });
+    } catch (err) {
+      console.error("Failed to update document content:", err);
+      // Revert on error
+      if (document) {
+        setDocument(prev =>
+          prev ? { ...prev, content: document.content } : null
+        );
+      }
+    }
   };
 
   // Calculate unread comments count
@@ -210,8 +252,9 @@ export default function DocumentEditor() {
                     showToolbar={mode === "editing"}
                     className="min-h-full"
                     documentId={document.id}
-                    key={document.id}
                     readOnly={mode === "viewing"}
+                    initialContent={document.content}
+                    onContentChange={handleContentChange}
                   />
                 </div>
               </div>
