@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { currentUser } from "@clerk/nextjs/server";
 
-export async function syncUser() {
+export async function syncCurrentUser() {
   const clerkUser = await currentUser();
   if (!clerkUser) return null;
 
