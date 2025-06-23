@@ -30,6 +30,7 @@ export interface Comment {
   updatedAt: string;
   documentId: string;
   authorId: string;
+  resolved?: boolean;
 }
 
 export interface DocumentCollaborator {
@@ -38,6 +39,50 @@ export interface DocumentCollaborator {
   joinedAt: string;
   documentId: string;
   userId: string;
+}
+
+// UI Component Types
+export type DocumentMode = "viewing" | "editing";
+export type UserRole = "owner" | "editor" | "viewer";
+
+// Document Data Types
+export interface DocumentData {
+  id: string;
+  title: string;
+  content: string;
+  lastModified: string;
+  createdAt: string;
+  ownerId: string;
+  collaboratorIds: string[];
+}
+
+// Collaborator UI Type
+export interface Collaborator {
+  id: number; //  UI mock data
+  name: string;
+  avatar: string;
+  status: "online" | "away" | "offline";
+  cursor: { x: number; y: number } | null;
+  lastActive?: string;
+}
+
+// ✅ Fix AISuggestion to match mock data structure
+export interface AISuggestion {
+  id: number; //  mock data
+  type: "grammar" | "style" | "content";
+  title: string;
+  description: string;
+  // Remove suggestion field since mock data doesn't have it
+  confidence: number;
+}
+
+// ✅ Mock Comment Type
+export interface MockComment {
+  id: number;
+  content: string;
+  author: string;
+  timestamp: string;
+  resolved: boolean;
 }
 
 // API Response types (with relations)
@@ -117,4 +162,22 @@ export interface DocumentCardData {
   collaborators: CollaboratorWithUser[];
   isStarred: boolean;
   comments: number;
+}
+
+// Editor Header Props Interface
+export interface EditorHeaderProps {
+  documentTitle: string;
+  onTitleChange: (newTitle: string) => Promise<void>;
+  collaborators: Collaborator[];
+  showAI: boolean;
+  showComments: boolean;
+  onToggleAI: () => void;
+  onToggleComments: () => void;
+  unreadCommentsCount: number;
+  mode: DocumentMode;
+  userRole: UserRole;
+  onModeChange: (mode: DocumentMode) => void;
+  isDocumentOwner: boolean;
+  saveStatus?: "saved" | "saving" | "error";
+  lastSaved?: Date | null;
 }

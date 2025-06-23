@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { prisma } from "@/lib/prisma";
+import { getUserFromRequest } from "@/lib/auth";
 
 export default async function handler(
   req: NextApiRequest,
@@ -9,7 +10,21 @@ export default async function handler(
 
   if (req.method === "GET") {
     try {
+   
+      const user = await getUserFromRequest(req);
+
+      // Only return documents user owns or collaborates on
       const documents = await prisma.document.findMany({
+        where: {
+          OR: [
+            { ownerId: user.id }, // Documents user owns
+            {
+              collaborators: {
+                some: { userId: user.id }, // Documents user collaborates on
+              },
+            },
+          ],
+        },
         include: {
           owner: {
             select: {
@@ -39,12 +54,22 @@ export default async function handler(
         orderBy: { updatedAt: "desc" },
       });
 
-      console.log("Found documents in DB:", documents.length);
-      console.log("First document owner:", documents[0]?.owner);
-
+      console.log(`Found ${documents.length} documents for user:`, user.email);
       return res.json(documents);
     } catch (error) {
       console.error("GET documents error:", error);
+
+      if (error instanceof Error && error.message === "Unauthorized") {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      if (
+        error instanceof Error &&
+        error.message === "User not found in database"
+      ) {
+        return res.status(404).json({ error: "User not synced to database" });
+      }
+
       return res.status(500).json({
         error:
           error instanceof Error ? error.message : "Failed to fetch documents",
@@ -54,27 +79,15 @@ export default async function handler(
 
   if (req.method === "POST") {
     try {
+      const user = await getUserFromRequest(req);
+
       const { title } = req.body;
-      console.log("Creating document with title:", title);
-
-      // Create or find a temporary user
-      const tempUser = await prisma.user.upsert({
-        where: { clerkId: "temp-user" },
-        update: {}, // Don't update anything if exists
-        create: {
-          clerkId: "temp-user",
-          email: "temp@example.com",
-          firstName: "Temp",
-          lastName: "User",
-        },
-      });
-
-      console.log("Using user:", tempUser.id);
+      console.log("Creating document for user:", user.email);
 
       const document = await prisma.document.create({
         data: {
           title: title || "Untitled Document",
-          ownerId: tempUser.id,
+          ownerId: user.id,
         },
         include: {
           owner: {
@@ -89,10 +102,22 @@ export default async function handler(
         },
       });
 
-      console.log("Document created:", document);
+      console.log("Document created:", document.id);
       return res.status(201).json(document);
     } catch (error) {
       console.error("POST document error:", error);
+
+      if (error instanceof Error && error.message === "Unauthorized") {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      if (
+        error instanceof Error &&
+        error.message === "User not found in database"
+      ) {
+        return res.status(404).json({ error: "User not synced to database" });
+      }
+
       return res.status(500).json({
         error:
           error instanceof Error ? error.message : "Failed to create document",

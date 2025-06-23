@@ -123,9 +123,17 @@ export default function LexicalEditor({
 
   const createInitialEditorState = () => {
     if (initialContent) {
-      return JSON.stringify(initialContent);
-    }
+      try {
 
+        if (typeof initialContent === "string") {
+          return initialContent;
+        }
+        return JSON.stringify(initialContent);
+      } catch (error) {
+        console.warn("Failed to parse initial content:", error);
+        return null;
+      }
+    }
     return null;
   };
 
@@ -169,14 +177,14 @@ export default function LexicalEditor({
 
       <LexicalComposer initialConfig={editorConfig}>
         {/* Collaboration Plugin */}
-        <CollaborationPlugin
+        {/* <CollaborationPlugin
           id={documentId}
           providerFactory={providerFactory}
           shouldBootstrap={false}
           username={userProfile.name}
           cursorColor={userProfile.color}
           cursorsContainerRef={containerRef}
-        />
+        /> */}
 
         {/* Toolbar - Only show when not read-only and showToolbar is true */}
         {showToolbar && !readOnly && (
