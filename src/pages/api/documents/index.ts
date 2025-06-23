@@ -10,17 +10,16 @@ export default async function handler(
 
   if (req.method === "GET") {
     try {
-   
       const user = await getUserFromRequest(req);
 
       // Only return documents user owns or collaborates on
       const documents = await prisma.document.findMany({
         where: {
           OR: [
-            { ownerId: user.id }, // Documents user owns
+            { ownerId: user.id },
             {
               collaborators: {
-                some: { userId: user.id }, // Documents user collaborates on
+                some: { userId: user.id },
               },
             },
           ],
@@ -84,10 +83,36 @@ export default async function handler(
       const { title } = req.body;
       console.log("Creating document for user:", user.email);
 
+      // default content structure for Lexical
+      const defaultContent = {
+        root: {
+          children: [
+            {
+              children: [],
+              direction: null,
+              format: "",
+              indent: 0,
+              type: "paragraph",
+              version: 1,
+            },
+          ],
+          direction: null,
+          format: "",
+          indent: 0,
+          type: "root",
+          version: 1,
+        },
+      };
+
       const document = await prisma.document.create({
         data: {
           title: title || "Untitled Document",
           ownerId: user.id,
+          // ✅ Fix: Provide valid default content instead of null
+          content: JSON.stringify(defaultContent),
+          // ✅ Fix: Explicitly set default values
+          isPublic: false,
+          coverImage: null, // Explicitly null is fine
         },
         include: {
           owner: {
@@ -99,10 +124,25 @@ export default async function handler(
               email: true,
             },
           },
+          _count: {
+            select: { comments: true },
+          },
+          collaborators: {
+            include: {
+              user: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                  imageUrl: true,
+                },
+              },
+            },
+          },
         },
       });
 
-      console.log("Document created:", document.id);
+      console.log("Document created:", document.id, "with valid content");
       return res.status(201).json(document);
     } catch (error) {
       console.error("POST document error:", error);

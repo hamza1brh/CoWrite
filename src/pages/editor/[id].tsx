@@ -108,7 +108,7 @@ export default function DocumentEditor() {
     }
   }, [isLoaded, user, router]);
 
-  // Fetch document 
+  // Fetch document
   useEffect(() => {
     if (!id || typeof id !== "string" || !isLoaded || !user) return;
 
@@ -117,7 +117,6 @@ export default function DocumentEditor() {
         setLoading(true);
         setError(null);
 
-      
         const response = await fetch(`/api/documents/${id}`);
 
         if (!response.ok) {
@@ -143,7 +142,7 @@ export default function DocumentEditor() {
               ? docData.content
               : JSON.stringify(docData.content || {}),
           ownerId: docData.ownerId,
-          collaborators: docData.collaborators || [], 
+          collaborators: docData.collaborators || [],
           isPublic: docData.isPublic || false,
           lastModified: new Date(docData.updatedAt).toLocaleDateString(),
           createdAt: new Date(docData.createdAt).toLocaleDateString(),
@@ -153,7 +152,7 @@ export default function DocumentEditor() {
         lastSavedContentRef.current = transformedDoc.content;
         isInitialLoadRef.current = true;
 
-        // mock data for UI components 
+        // mock data for UI components
         const [commentsData, collaboratorsData, aiData] = await Promise.all([
           getComments(id),
           getCollaborators(id),

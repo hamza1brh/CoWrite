@@ -34,13 +34,34 @@ interface LexicalEditorProps {
   onContentChange?: (editorState: any) => void;
 }
 
+// default empty Lexical editor state
+const DEFAULT_EDITOR_STATE = JSON.stringify({
+  root: {
+    children: [
+      {
+        children: [],
+        direction: null,
+        format: "",
+        indent: 0,
+        type: "paragraph",
+        version: 1,
+      },
+    ],
+    direction: null,
+    format: "",
+    indent: 0,
+    type: "root",
+    version: 1,
+  },
+});
+
 export default function LexicalEditor({
   className,
   showToolbar = false,
   documentId = "lexical/react-rich-collab",
   readOnly = false,
-  initialContent = null, // ✅ Accept initial content
-  onContentChange, // ✅ Accept content change handler
+  initialContent = null,
+  onContentChange,
 }: LexicalEditorProps) {
   const [userProfile, setUserProfile] = useState<UserProfile>(() => ({
     name: "User " + Math.floor(Math.random() * 1000),
@@ -121,20 +142,30 @@ export default function LexicalEditor({
     []
   );
 
+  //  Create initial editor state with proper defaults
   const createInitialEditorState = () => {
+    // If we have initial content, try to use it
     if (initialContent) {
       try {
-
+        // If it's already a string, use it
         if (typeof initialContent === "string") {
+          // Validate it's valid JSON
+          JSON.parse(initialContent);
           return initialContent;
         }
+        // If it's an object, stringify it
         return JSON.stringify(initialContent);
       } catch (error) {
-        console.warn("Failed to parse initial content:", error);
-        return null;
+        console.warn(
+          "❌ Failed to parse initial content, using default:",
+          error
+        );
+        return DEFAULT_EDITOR_STATE;
       }
     }
-    return null;
+
+    console.log("📄 No initial content provided, using default empty state");
+    return DEFAULT_EDITOR_STATE;
   };
 
   const editorConfig = {
@@ -157,6 +188,7 @@ export default function LexicalEditor({
       HorizontalRuleNode,
     ],
     onError(error: Error) {
+      console.error("❌ Lexical Editor Error:", error);
       throw error;
     },
     theme: lexicalTheme,
@@ -219,7 +251,7 @@ export default function LexicalEditor({
           </div>
         )}
 
-        {/* Editor component with real content */}
+        {/* Editor component*/}
         <Editor
           floatingAnchorElem={floatingAnchorElem}
           isSmallWidthViewport={isSmallWidthViewport}
