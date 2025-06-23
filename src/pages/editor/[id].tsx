@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/router";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -12,12 +12,9 @@ import EditorHeader, {
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 import { useUser } from "@clerk/nextjs";
+import { useAutoSave } from "@/hooks/useAutoSave";
 
-import {
-  getDocument,
-  updateDocument,
-  type DocumentData,
-} from "@/data/mockDocuments";
+import { type DocumentData } from "@/data/mockDocuments";
 import { getComments, addComment, type Comment } from "@/data/mockComments";
 import { getCollaborators, type Collaborator } from "@/data/mockUsers";
 import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
@@ -91,7 +88,7 @@ export default function DocumentEditor() {
 
         setDocument(transformedDoc);
 
-        // Keep mock data for other features for now
+        // Keep mock data for comments, collaborators, and AI suggestions
         const [commentsData, collaboratorsData, aiData] = await Promise.all([
           getComments(id),
           getCollaborators(id),
@@ -117,48 +114,136 @@ export default function DocumentEditor() {
     fetchData();
   }, [id, userRole, isLoaded, user]);
 
+  // Auto-save hook
+  const { save: autoSave, forceSave } = useAutoSave({
+    saveFunction: async (data: { content?: string }) => {
+      if (!document) return;
+
+      console.log("💾 Auto-save triggered with content only");
+
+      const response = await fetch(`/api/documents/${document.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(
+          `Failed to save document: ${response.status} - ${errorText}`
+        );
+      }
+
+      console.log("✅ Content auto-saved");
+    },
+    debounceMs: 2000, // Only for content
+    intervalMs: 30000, // Only for content
+    enabled: mode === "editing",
+  });
+
   // Handle document title change
-  const handleTitleChange = async (newTitle: string) => {
+  const handleTitleChange = async (newTitle: string): Promise<void> => {
     if (!document) return;
 
     try {
+      // Immediate UI update
       setDocument(prev => (prev ? { ...prev, title: newTitle } : null));
 
-      // Update in backend/mock data
-      const updatedDoc = await updateDocument(document.id, { title: newTitle });
+      // Immediate API call (no debouncing)
+      console.log("💾 Saving title immediately:", newTitle);
+
+      const response = await fetch(`/api/documents/${document.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ title: newTitle }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save title: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("✅ Title saved:", result.title);
     } catch (err) {
-      console.error("Failed to update document title:", err);
+      console.error("❌ Failed to save title:", err);
+
       // Revert on error
       if (document) {
         setDocument(prev => (prev ? { ...prev, title: document.title } : null));
       }
+
+      // Re-throw so EditorHeader can handle the error
+      throw err;
     }
   };
 
   // Handle mode change
   const handleModeChange = (newMode: DocumentMode) => {
     setMode(newMode);
-  };
-
-  // Handle content change
-  const handleContentChange = async (newContent: string) => {
-    if (!document) return;
-
-    try {
-      setDocument(prev => (prev ? { ...prev, content: newContent } : null));
-
-      // Update in backend/mock data
-      await updateDocument(document.id, { content: newContent });
-    } catch (err) {
-      console.error("Failed to update document content:", err);
-      // Revert on error
-      if (document) {
-        setDocument(prev =>
-          prev ? { ...prev, content: document.content } : null
-        );
-      }
+    if (newMode === "editing") {
+      console.log("🖊️ Editing enabled - auto-save active");
+    } else {
+      console.log("👁️ Viewing mode - read-only");
     }
   };
+
+  const [lastSavedContent, setLastSavedContent] = useState<string>("");
+
+  // Handle content change
+  const handleContentChange = useCallback(
+    (editorState: any) => {
+      if (!document) return;
+
+      try {
+        // Convert to JSON string
+        const contentString = JSON.stringify(editorState);
+
+        // Only save if content actually changed
+        if (contentString === lastSavedContent) {
+          return; // No change, skip
+        }
+
+        // Immediate UI update
+        setDocument(prev =>
+          prev ? { ...prev, content: contentString } : null
+        );
+
+        // Auto-save only content
+        autoSave({ content: contentString });
+
+        console.log("📝 Content changed, auto-saving...");
+      } catch (err) {
+        console.error("Failed to update document content:", err);
+      }
+    },
+    [document, autoSave, lastSavedContent]
+  );
+
+  // Update lastSavedContent when document loads or saves successfully
+  useEffect(() => {
+    if (document?.content) {
+      setLastSavedContent(document.content);
+    }
+  }, [document?.content]);
+
+  // Force save before page unload
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (mode === "editing") {
+        e.preventDefault();
+        e.returnValue =
+          "You have unsaved changes. Are you sure you want to leave?";
+        return e.returnValue;
+      }
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [mode]);
 
   // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;

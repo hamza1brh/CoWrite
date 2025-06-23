@@ -32,36 +32,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
-interface Collaborator {
-  id: number;
-  name: string;
-  avatar: string;
-  status: "online" | "away" | "offline";
-  cursor: { x: number; y: number } | null;
-  lastActive?: string;
-}
 
-type DocumentMode = "viewing" | "editing";
-type UserRole = "owner" | "editor" | "viewer";
-
-interface EditorHeaderProps {
-  documentTitle: string;
-  onTitleChange: (newTitle: string) => void;
-  collaborators: any[];
-  showAI: boolean;
-  showComments: boolean;
-  onToggleAI: () => void;
-  onToggleComments: () => void;
-  unreadCommentsCount: number;
-  mode: DocumentMode;
-  userRole: UserRole;
-  onModeChange: (mode: DocumentMode) => void;
-  isDocumentOwner: boolean;
-  saveStatus?: "saved" | "saving" | "error"; // Add this
-  lastSaved?: Date | null; // Add this
-}
+import type {
+  DocumentMode,
+  UserRole,
+  Collaborator,
+  EditorHeaderProps,
+} from "@/lib/types/api";
 
 export default function EditorHeader({
   documentTitle,
@@ -81,6 +60,7 @@ export default function EditorHeader({
 
   // Local state for immediate UI updates
   const [localTitle, setLocalTitle] = useState(documentTitle);
+  const titleInputRef = useRef<HTMLInputElement>(null);
 
   // Update local state when prop changes
   useEffect(() => {
@@ -96,8 +76,30 @@ export default function EditorHeader({
   };
 
   const handleTitleChange = (newTitle: string) => {
-    setLocalTitle(newTitle); // Immediate local update
-    onTitleChange(newTitle); // Call parent handler
+    setLocalTitle(newTitle); // Immediate local update only
+  };
+
+  const handleTitleBlur = async () => {
+    if (localTitle !== documentTitle) {
+      try {
+        console.log("💾 Saving title:", localTitle);
+        await onTitleChange(localTitle); // Save when user clicks away
+      } catch (error) {
+        console.error("Failed to save title:", error);
+        // Revert on error
+        setLocalTitle(documentTitle);
+      }
+    }
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      titleInputRef.current?.blur();
+    }
+    if (e.key === "Escape") {
+      setLocalTitle(documentTitle);
+      titleInputRef.current?.blur();
+    }
   };
 
   return (
@@ -112,8 +114,11 @@ export default function EditorHeader({
             <div className="flex min-w-0 items-center space-x-2">
               {mode === "editing" && canEdit ? (
                 <Input
+                  ref={titleInputRef}
                   value={localTitle}
                   onChange={e => handleTitleChange(e.target.value)}
+                  onBlur={handleTitleBlur}
+                  onKeyDown={handleTitleKeyDown}
                   className="w-auto min-w-[200px] max-w-[400px] border-transparent bg-transparent px-2 py-1 text-base font-semibold focus:border-slate-300 focus:bg-white focus-visible:ring-2 focus-visible:ring-blue-500 dark:focus:border-slate-600 dark:focus:bg-slate-800 sm:text-lg"
                   placeholder="Untitled Document"
                   style={{
@@ -211,7 +216,7 @@ export default function EditorHeader({
                       <AvatarFallback className="text-xs">
                         {collaborator.name
                           .split(" ")
-                          .map((n: any[]) => n[0])
+                          .map((n: string) => n[0])
                           .join("")}
                       </AvatarFallback>
                     </Avatar>
