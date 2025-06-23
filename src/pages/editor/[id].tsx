@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/router";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -14,10 +14,25 @@ import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 import { useUser } from "@clerk/nextjs";
 import { useAutoSave } from "@/hooks/useAutoSave";
 
-import { type DocumentData } from "@/data/mockDocuments";
+import type {
+  DocumentWithDetails,
+  CollaboratorWithUser,
+} from "@/lib/types/api";
 import { getComments, addComment, type Comment } from "@/data/mockComments";
 import { getCollaborators, type Collaborator } from "@/data/mockUsers";
 import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
+
+//  simplified document interface for the editor
+interface EditorDocument {
+  id: string;
+  title: string;
+  content: string; // JSON string from Lexical
+  ownerId: string;
+  collaborators: CollaboratorWithUser[];
+  isPublic: boolean;
+  lastModified: string;
+  createdAt: string;
+}
 
 export default function DocumentEditor() {
   const router = useRouter();
@@ -27,13 +42,10 @@ export default function DocumentEditor() {
   // UI State
   const [showComments, setShowComments] = useState(false);
   const [showAI, setShowAI] = useState(false);
-
-  // Document editing mode management
   const [mode, setMode] = useState<DocumentMode>("viewing");
-  const [userRole, setUserRole] = useState<UserRole>("editor"); // This will come from auth later
 
   // Data State
-  const [document, setDocument] = useState<DocumentData | null>(null);
+  const [document, setDocument] = useState<EditorDocument | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]);
@@ -42,6 +54,53 @@ export default function DocumentEditor() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Content refs
+  const lastSavedContentRef = useRef<string>("");
+  const isInitialLoadRef = useRef(true);
+
+  //  user role calculation
+  const getUserRole = useCallback((): UserRole => {
+    if (!document || !user) return "viewer";
+
+    // Check if user is the document owner
+    if (document.ownerId === user.id) {
+      return "owner";
+    }
+
+    // Check collaborators (when the API is ready)
+    if (document.collaborators && document.collaborators.length > 0) {
+      const userCollaboration = document.collaborators.find(
+        collab => collab.user.clerkId === user.id
+      );
+
+      if (userCollaboration) {
+        //  Prisma Role enum to UserRole
+        switch (userCollaboration.role) {
+          case "OWNER":
+            return "owner";
+          case "EDITOR":
+            return "editor";
+          case "VIEWER":
+            return "viewer";
+          default:
+            return "viewer";
+        }
+      }
+    }
+
+    // ✅ Future: Check if document is public
+    if (document.isPublic) {
+      return "viewer";
+    }
+
+    // ✅ Current fallback: For now, give edit access to authenticated users
+    // TODO: Remove this when collaborator management is implemented
+    return "editor";
+  }, [document, user]);
+
+  // Calculate user role dynamically
+  const userRole = getUserRole();
+
   // Redirect if not authenticated
   useEffect(() => {
     if (isLoaded && !user) {
@@ -49,7 +108,7 @@ export default function DocumentEditor() {
     }
   }, [isLoaded, user, router]);
 
-  // Fetch data on mount and when ID changes
+  // Fetch document 
   useEffect(() => {
     if (!id || typeof id !== "string" || !isLoaded || !user) return;
 
@@ -58,12 +117,14 @@ export default function DocumentEditor() {
         setLoading(true);
         setError(null);
 
-        // Fetch real document from API
+      
         const response = await fetch(`/api/documents/${id}`);
 
         if (!response.ok) {
           if (response.status === 404) {
             setError("Document not found");
+          } else if (response.status === 403) {
+            setError("You don't have permission to access this document");
           } else {
             setError("Failed to load document");
           }
@@ -73,22 +134,26 @@ export default function DocumentEditor() {
         const docData = await response.json();
         console.log("Loaded document:", docData);
 
-        // Transform API response to match existing DocumentData interface
-        const transformedDoc: DocumentData = {
+        // Transform API response to editor format
+        const transformedDoc: EditorDocument = {
           id: docData.id,
           title: docData.title,
-          content: docData.content,
+          content:
+            typeof docData.content === "string"
+              ? docData.content
+              : JSON.stringify(docData.content || {}),
+          ownerId: docData.ownerId,
+          collaborators: docData.collaborators || [], 
+          isPublic: docData.isPublic || false,
           lastModified: new Date(docData.updatedAt).toLocaleDateString(),
-          createdAt: docData.createdAt
-            ? new Date(docData.createdAt).toLocaleDateString()
-            : "",
-          ownerId: docData.ownerId ?? "",
-          collaboratorIds: docData.collaboratorIds ?? [],
+          createdAt: new Date(docData.createdAt).toLocaleDateString(),
         };
 
         setDocument(transformedDoc);
+        lastSavedContentRef.current = transformedDoc.content;
+        isInitialLoadRef.current = true;
 
-        // Keep mock data for comments, collaborators, and AI suggestions
+        // mock data for UI components 
         const [commentsData, collaboratorsData, aiData] = await Promise.all([
           getComments(id),
           getCollaborators(id),
@@ -98,28 +163,34 @@ export default function DocumentEditor() {
         setComments(commentsData);
         setCollaborators(collaboratorsData);
         setAiSuggestions(aiData);
-
-        // Auto-switch to editing mode if user can edit
-        if (userRole === "owner" || userRole === "editor") {
-          setMode("editing");
-        }
       } catch (err) {
+        console.error("❌ Error fetching document:", err);
         setError("Failed to load document data");
-        console.error("Error fetching document data:", err);
       } finally {
         setLoading(false);
       }
     };
 
     fetchData();
-  }, [id, userRole, isLoaded, user]);
+  }, [id, isLoaded, user]);
+
+  // Set editing mode based on user role
+  useEffect(() => {
+    if (document) {
+      if (userRole === "owner" || userRole === "editor") {
+        setMode("editing");
+      } else {
+        setMode("viewing");
+      }
+    }
+  }, [document, userRole]);
 
   // Auto-save hook
-  const { save: autoSave, forceSave } = useAutoSave({
+  const { save: autoSave } = useAutoSave({
     saveFunction: async (data: { content?: string }) => {
       if (!document) return;
 
-      console.log("💾 Auto-save triggered with content only");
+      console.log("💾 Auto-save triggered");
 
       const response = await fetch(`/api/documents/${document.id}`, {
         method: "PUT",
@@ -131,28 +202,28 @@ export default function DocumentEditor() {
 
       if (!response.ok) {
         const errorText = await response.text();
-        throw new Error(
-          `Failed to save document: ${response.status} - ${errorText}`
-        );
+        throw new Error(`Save failed: ${response.status} - ${errorText}`);
       }
 
       console.log("✅ Content auto-saved");
+
+      if (data.content) {
+        lastSavedContentRef.current = data.content;
+      }
     },
-    debounceMs: 2000, // Only for content
-    intervalMs: 30000, // Only for content
+    debounceMs: 2000,
+    intervalMs: 30000,
     enabled: mode === "editing",
   });
 
-  // Handle document title change
+  // Handle title change
   const handleTitleChange = async (newTitle: string): Promise<void> => {
     if (!document) return;
 
     try {
-      // Immediate UI update
       setDocument(prev => (prev ? { ...prev, title: newTitle } : null));
 
-      // Immediate API call (no debouncing)
-      console.log("💾 Saving title immediately:", newTitle);
+      console.log("💾 Saving title:", newTitle);
 
       const response = await fetch(`/api/documents/${document.id}`, {
         method: "PUT",
@@ -166,32 +237,26 @@ export default function DocumentEditor() {
         throw new Error(`Failed to save title: ${response.status}`);
       }
 
-      const result = await response.json();
-      console.log("✅ Title saved:", result.title);
+      console.log("✅ Title saved");
     } catch (err) {
       console.error("❌ Failed to save title:", err);
-
-      // Revert on error
       if (document) {
         setDocument(prev => (prev ? { ...prev, title: document.title } : null));
       }
-
-      // Re-throw so EditorHeader can handle the error
       throw err;
     }
   };
 
   // Handle mode change
   const handleModeChange = (newMode: DocumentMode) => {
-    setMode(newMode);
-    if (newMode === "editing") {
-      console.log("🖊️ Editing enabled - auto-save active");
-    } else {
-      console.log("👁️ Viewing mode - read-only");
+    // ✅ Only allow mode changes if user has permission
+    if (newMode === "editing" && userRole === "viewer") {
+      console.log("❌ User doesn't have edit permissions");
+      return;
     }
+    setMode(newMode);
+    console.log(`📱 Mode changed to: ${newMode}`);
   };
-
-  const [lastSavedContent, setLastSavedContent] = useState<string>("");
 
   // Handle content change
   const handleContentChange = useCallback(
@@ -199,104 +264,78 @@ export default function DocumentEditor() {
       if (!document) return;
 
       try {
-        // Convert to JSON string
         const contentString = JSON.stringify(editorState);
 
-        // Only save if content actually changed
-        if (contentString === lastSavedContent) {
-          return; // No change, skip
+        if (
+          isInitialLoadRef.current &&
+          contentString === lastSavedContentRef.current
+        ) {
+          isInitialLoadRef.current = false;
+          return;
         }
 
-        // Immediate UI update
+        if (contentString === lastSavedContentRef.current) {
+          return;
+        }
+
+        isInitialLoadRef.current = false;
+
         setDocument(prev =>
           prev ? { ...prev, content: contentString } : null
         );
 
-        // Auto-save only content
         autoSave({ content: contentString });
-
-        console.log("📝 Content changed, auto-saving...");
       } catch (err) {
-        console.error("Failed to update document content:", err);
+        console.error("❌ Failed to process content change:", err);
       }
     },
-    [document, autoSave, lastSavedContent]
+    [document, autoSave]
   );
 
-  // Update lastSavedContent when document loads or saves successfully
-  useEffect(() => {
-    if (document?.content) {
-      setLastSavedContent(document.content);
+  // Handle adding comments
+  const handleAddComment = async (content: string) => {
+    try {
+      if (!id || typeof id !== "string" || !user) return;
+
+      const newComment = await addComment(
+        id,
+        content,
+        user.fullName || user.firstName || "Anonymous"
+      );
+      setComments(prev => [newComment, ...prev]);
+    } catch (error) {
+      console.error("Failed to add comment:", error);
     }
-  }, [document?.content]);
+  };
 
-  // Force save before page unload
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (mode === "editing") {
-        e.preventDefault();
-        e.returnValue =
-          "You have unsaved changes. Are you sure you want to leave?";
-        return e.returnValue;
-      }
-    };
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [mode]);
-
-  // Calculate unread comments count
+  // Calculate unread comments
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
 
-  // Show loading while checking auth
-  if (!isLoaded || !user) {
+  // Loading state
+  if (!isLoaded || !user || loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
+      <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
       </div>
     );
   }
 
-  // Loading state
-  if (loading) {
-    return (
-      <SidebarProvider>
-        <AppSidebar />
-        <SidebarInset>
-          <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
-            <div className="flex h-64 items-center justify-center">
-              <div className="text-center">
-                <div className="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-2 border-blue-600 border-t-transparent"></div>
-                <p className="text-slate-600 dark:text-slate-400">
-                  Loading document...
-                </p>
-              </div>
-            </div>
-          </div>
-        </SidebarInset>
-      </SidebarProvider>
-    );
-  }
-
-  // Error state
   if (error || !document) {
     return (
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
-          <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
-            <div className="flex h-64 items-center justify-center">
-              <div className="text-center">
-                <p className="mb-4 text-lg text-red-600 dark:text-red-400">
-                  {error || "Document not found"}
-                </p>
-                <button
-                  onClick={() => router.push("/")}
-                  className="text-blue-600 underline hover:text-blue-800"
-                >
-                  Return to Dashboard
-                </button>
-              </div>
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="text-center">
+              <p className="mb-4 text-lg text-red-600">
+                {error || "Document not found"}
+              </p>
+              <button
+                onClick={() => router.push("/")}
+                className="text-blue-600 underline hover:text-blue-800"
+              >
+                Return to Dashboard
+              </button>
             </div>
           </div>
         </SidebarInset>
@@ -309,7 +348,6 @@ export default function DocumentEditor() {
       <AppSidebar />
       <SidebarInset>
         <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
-          {/* Header */}
           <EditorHeader
             documentTitle={document.title}
             onTitleChange={handleTitleChange}
@@ -320,19 +358,15 @@ export default function DocumentEditor() {
             onToggleComments={() => setShowComments(!showComments)}
             unreadCommentsCount={unreadCommentsCount}
             mode={mode}
-            userRole={userRole}
+            userRole={userRole} // ✅ Now properly calculated
             onModeChange={handleModeChange}
             isDocumentOwner={userRole === "owner"}
           />
 
           <div className="flex flex-1 overflow-hidden">
-            {/* Main Editor */}
             <div className="flex flex-1 flex-col">
-              {/* Editor Content */}
               <div className="relative flex-1 overflow-auto p-4 sm:p-6">
-                {/* Document Container */}
                 <div className="mx-auto max-w-3xl rounded-lg border border-slate-200/30 dark:border-slate-700/20 sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl">
-                  {/* Lexical Editor */}
                   <LexicalEditor
                     showToolbar={mode === "editing"}
                     className="min-h-full"
@@ -345,56 +379,50 @@ export default function DocumentEditor() {
               </div>
             </div>
 
-            {/* Desktop Panels - Only render on larger screens */}
+            {/* Desktop Panels */}
             <div className="hidden lg:flex">
-              <AiAssistantPanel
-                isOpen={showAI}
-                onClose={() => setShowAI(false)}
-                suggestions={aiSuggestions}
-                onRefreshSuggestions={async () => {
-                  if (!document?.id) return;
-                  try {
-                    const newSuggestions = await getAISuggestions(document.id);
-                    setAiSuggestions(newSuggestions);
-                  } catch (err) {
-                    console.error("Failed to refresh AI suggestions:", err);
-                  }
-                }}
-              />
+              {showAI && (
+                <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                  <AiAssistantPanel
+                    isOpen={true}
+                    onClose={() => setShowAI(false)}
+                    suggestions={aiSuggestions}
+                    onRefreshSuggestions={async () => {
+                      if (!document?.id) return;
+                      try {
+                        const newSuggestions = await getAISuggestions(
+                          document.id
+                        );
+                        setAiSuggestions(newSuggestions);
+                      } catch (err) {
+                        console.error("Failed to refresh AI suggestions:", err);
+                      }
+                    }}
+                  />
+                </div>
+              )}
 
-              <CommentsPanel
-                isOpen={showComments}
-                onClose={() => setShowComments(false)}
-                comments={comments}
-                onAddComment={async (content: string) => {
-                  if (!document?.id) return;
-                  try {
-                    const newComment = await addComment(
-                      document.id,
-                      content,
-                      "Current User"
-                    );
-                    setComments(prev => [...prev, newComment]);
-                  } catch (err) {
-                    console.error("Failed to add comment:", err);
-                  }
-                }}
-                onResolveComment={async (commentId: number) => {
-                  try {
-                    setComments(prev =>
-                      prev.map(c =>
-                        c.id === commentId ? { ...c, resolved: true } : c
-                      )
-                    );
-                  } catch (err) {
-                    console.error("Failed to resolve comment:", err);
-                  }
-                }}
-              />
+              {showComments && (
+                <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                  <CommentsPanel
+                    isOpen={true}
+                    onClose={() => setShowComments(false)}
+                    comments={comments}
+                    onAddComment={handleAddComment}
+                    onResolveComment={commentId => {
+                      setComments(prev =>
+                        prev.map(c =>
+                          c.id === commentId ? { ...c, resolved: true } : c
+                        )
+                      );
+                    }}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Mobile Panels - Overlay/Modal style */}
+          {/* Mobile Panels */}
           <div className="lg:hidden">
             {(showAI || showComments) && (
               <div
@@ -433,29 +461,13 @@ export default function DocumentEditor() {
                   isOpen={true}
                   onClose={() => setShowComments(false)}
                   comments={comments}
-                  onAddComment={async (content: string) => {
-                    if (!document?.id) return;
-                    try {
-                      const newComment = await addComment(
-                        document.id,
-                        content,
-                        "Current User"
-                      );
-                      setComments(prev => [...prev, newComment]);
-                    } catch (err) {
-                      console.error("Failed to add comment:", err);
-                    }
-                  }}
-                  onResolveComment={async (commentId: number) => {
-                    try {
-                      setComments(prev =>
-                        prev.map(c =>
-                          c.id === commentId ? { ...c, resolved: true } : c
-                        )
-                      );
-                    } catch (err) {
-                      console.error("Failed to resolve comment:", err);
-                    }
+                  onAddComment={handleAddComment}
+                  onResolveComment={commentId => {
+                    setComments(prev =>
+                      prev.map(c =>
+                        c.id === commentId ? { ...c, resolved: true } : c
+                      )
+                    );
                   }}
                 />
               </div>
