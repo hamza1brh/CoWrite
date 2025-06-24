@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import InviteCollaboratorsDialog from "./InviteCollaboratorsDialog";
 import {
   Share2,
   MessageCircle,
@@ -70,6 +71,12 @@ export interface EditorHeaderProps {
     role: "EDITOR" | "VIEWER"
   ) => Promise<void>;
   onRemoveCollaborator?: (collaboratorId: string) => Promise<void>;
+  onChangeRole?: (
+    collaboratorId: string,
+    role: "EDITOR" | "VIEWER"
+  ) => Promise<void>;
+  showCollaborators?: boolean;
+  onToggleCollaborators?: () => void;
 }
 
 export default function EditorHeader({
@@ -87,12 +94,18 @@ export default function EditorHeader({
   isDocumentOwner = false,
   onAddCollaborator,
   onRemoveCollaborator,
+  onChangeRole,
+  showCollaborators = false,
+  onToggleCollaborators,
 }: EditorHeaderProps) {
   const canEdit = userRole === "owner" || userRole === "editor";
 
   // Local state for immediate UI updates
   const [localTitle, setLocalTitle] = useState(documentTitle);
   const titleInputRef = useRef<HTMLInputElement>(null);
+
+  // Modal states
+  const [showInviteModal, setShowInviteModal] = useState(false);
 
   // Update local state when prop changes
   useEffect(() => {
@@ -136,7 +149,11 @@ export default function EditorHeader({
   };
 
   const handleInviteCollaborators = () => {
-    console.log("Opening invite collaborators dialog");
+    setShowInviteModal(true);
+  };
+
+  const handleShowCollaborators = () => {
+    onToggleCollaborators?.();
   };
 
   return (
@@ -251,56 +268,66 @@ export default function EditorHeader({
 
             {/* Collaborators */}
             <div className="hidden items-center space-x-2 sm:flex">
-              <div className="flex -space-x-2">
-                {collaborators.slice(0, 3).map(collaborator => (
-                  <motion.div
-                    key={collaborator.id}
-                    initial={{ opacity: 0, scale: 0 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="relative"
-                    title={`${collaborator.name} (${collaborator.status})`}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleShowCollaborators}
+                    className="flex -space-x-2 transition-transform hover:scale-105"
                   >
-                    <Avatar className="h-7 w-7 border-2 border-white dark:border-slate-800 sm:h-8 sm:w-8">
-                      <AvatarImage
-                        src={collaborator.avatar || "/placeholder.svg"}
-                        alt={collaborator.name}
-                      />
-                      <AvatarFallback className="text-xs">
-                        {collaborator.name
-                          .split(" ")
-                          .map((n: string) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div
-                      className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 sm:h-3 sm:w-3 ${
-                        collaborator.status === "online"
-                          ? "bg-green-500"
-                          : collaborator.status === "away"
-                            ? "bg-yellow-500"
-                            : "bg-gray-400"
-                      }`}
-                    />
-                  </motion.div>
-                ))}
-                {collaborators.length > 3 && (
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-300 sm:h-8 sm:w-8">
-                    +{collaborators.length - 3}
-                  </div>
-                )}
-              </div>
+                    {collaborators.slice(0, 3).map(collaborator => (
+                      <motion.div
+                        key={collaborator.id}
+                        initial={{ opacity: 0, scale: 0 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="relative"
+                      >
+                        <Avatar className="h-7 w-7 border-2 border-white dark:border-slate-800 sm:h-8 sm:w-8">
+                          <AvatarImage
+                            src={collaborator.avatar || "/placeholder.svg"}
+                            alt={collaborator.name}
+                          />
+                          <AvatarFallback className="text-xs">
+                            {collaborator.name
+                              .split(" ")
+                              .map((n: string) => n[0])
+                              .join("")}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div
+                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 sm:h-3 sm:w-3 ${
+                            collaborator.status === "online"
+                              ? "bg-green-500"
+                              : collaborator.status === "away"
+                                ? "bg-yellow-500"
+                                : "bg-gray-400"
+                          }`}
+                        />
+                      </motion.div>
+                    ))}
+                    {collaborators.length > 3 && (
+                      <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-300 sm:h-8 sm:w-8">
+                        +{collaborators.length - 3}
+                      </div>
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>View all collaborators ({collaborators.length})</p>
+                </TooltipContent>
+              </Tooltip>
 
-              {(userRole === "owner" || userRole === "editor") && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="hidden md:flex"
-                  onClick={handleInviteCollaborators}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Invite
-                </Button>
-              )}
+              {(userRole === "owner" || userRole === "editor") &&
+                onAddCollaborator && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="hidden md:flex"
+                    onClick={() => setShowInviteModal(true)}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Invite
+                  </Button>
+                )}
             </div>
 
             {/* Desktop Actions */}
@@ -419,12 +446,15 @@ export default function EditorHeader({
                     Share
                   </DropdownMenuItem>
 
-                  {(userRole === "owner" || userRole === "editor") && (
-                    <DropdownMenuItem onClick={handleInviteCollaborators}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Invite Collaborators
-                    </DropdownMenuItem>
-                  )}
+                  {(userRole === "owner" || userRole === "editor") &&
+                    onAddCollaborator && (
+                      <DropdownMenuItem
+                        onClick={() => setShowInviteModal(true)}
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Invite Collaborators
+                      </DropdownMenuItem>
+                    )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -433,6 +463,15 @@ export default function EditorHeader({
           </div>
         </div>
       </header>
+
+      {/* Quick Invite Dialog */}
+      {onAddCollaborator && (
+        <InviteCollaboratorsDialog
+          open={showInviteModal}
+          onOpenChange={setShowInviteModal}
+          onAddCollaborator={onAddCollaborator}
+        />
+      )}
     </TooltipProvider>
   );
 }
