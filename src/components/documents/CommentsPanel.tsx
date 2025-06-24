@@ -10,43 +10,128 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MessageCircle, X, Send, Check } from "lucide-react";
 
 interface Comment {
-  id: number;
-  author: string;
-  avatar: string;
+  id: string;
   content: string;
-  timestamp: string;
   resolved: boolean;
-  replies?: Comment[];
+  createdAt: string;
+  updatedAt: string;
+  documentId: string;
+  authorId: string;
+  author: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    imageUrl?: string;
+  };
 }
 
 interface CommentsPanelProps {
   isOpen: boolean;
   onClose: () => void;
   comments: Comment[];
-  onAddComment?: (content: string) => void;
-  onResolveComment?: (commentId: number) => void;
+  documentId: string;
+  onAddComment?: (newComment: Comment) => void;
+  onResolveComment?: (commentId: string) => void;
 }
 
 export default function CommentsPanel({
   isOpen,
   onClose,
   comments,
+  documentId,
   onAddComment,
   onResolveComment,
 }: CommentsPanelProps) {
   const [newComment, setNewComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmitComment = () => {
-    if (newComment.trim() && onAddComment) {
-      onAddComment(newComment.trim());
+  const handleSubmitComment = async () => {
+    if (!newComment.trim()) return;
+
+    setIsSubmitting(true);
+    try {
+      const response = await fetch(`/api/documents/${documentId}/comments`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          content: newComment.trim(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to add comment");
+      }
+
+      const newCommentData = await response.json();
+      console.log("✅ Comment added:", newCommentData);
+
+      if (onAddComment) {
+        onAddComment(newCommentData);
+      }
+
       setNewComment("");
+    } catch (error) {
+      console.error("❌ Failed to add comment:", error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleResolveComment = (commentId: number) => {
-    if (onResolveComment) {
-      onResolveComment(commentId);
+  const handleResolveComment = async (commentId: string) => {
+    try {
+      const response = await fetch(`/api/comments/${commentId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          resolved: true,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to resolve comment");
+      }
+
+      const updatedComment = await response.json();
+      console.log("✅ Comment resolved:", updatedComment);
+
+      if (onResolveComment) {
+        onResolveComment(commentId);
+      }
+    } catch (error) {
+      console.error("❌ Failed to resolve comment:", error);
     }
+  };
+
+  const formatTimestamp = (timestamp: string) => {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+
+    if (diffInHours < 1) {
+      return "Just now";
+    } else if (diffInHours < 24) {
+      return `${Math.floor(diffInHours)}h ago`;
+    } else {
+      return date.toLocaleDateString();
+    }
+  };
+
+  const getDisplayName = (author: Comment["author"]) => {
+    return `${author.firstName} ${author.lastName}`.trim() || author.email;
+  };
+
+  const getInitials = (author: Comment["author"]) => {
+    const firstName = author.firstName || "";
+    const lastName = author.lastName || "";
+    if (firstName && lastName) {
+      return `${firstName[0]}${lastName[0]}`.toUpperCase();
+    }
+    return author.email[0]?.toUpperCase() || "U";
   };
 
   return (
@@ -58,7 +143,7 @@ export default function CommentsPanel({
           exit={{ width: 0, opacity: 0 }}
           transition={{ duration: 0.3 }}
           className="surface-elevated flex flex-col overflow-hidden border-l border-slate-200/50 dark:border-slate-700/50"
-          style={{ height: "calc(100vh - 73px)" }} // Fixed height minus header height
+          style={{ height: "calc(100vh - 73px)" }}
         >
           {/* Header - Fixed */}
           <div className="flex-shrink-0 border-b border-slate-200 p-4 dark:border-slate-700">
@@ -90,23 +175,18 @@ export default function CommentsPanel({
                   >
                     <div className="flex items-start space-x-3">
                       <Avatar className="h-6 w-6">
-                        <AvatarImage
-                          src={comment.avatar || "/placeholder.svg"}
-                        />
+                        <AvatarImage src={comment.author.imageUrl} />
                         <AvatarFallback>
-                          {comment.author
-                            .split(" ")
-                            .map(n => n[0])
-                            .join("")}
+                          {getInitials(comment.author)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="flex-1">
                         <div className="mb-1 flex items-center justify-between">
                           <span className="text-sm font-medium">
-                            {comment.author}
+                            {getDisplayName(comment.author)}
                           </span>
                           <span className="text-xs text-slate-500">
-                            {comment.timestamp}
+                            {formatTimestamp(comment.createdAt)}
                           </span>
                         </div>
                         <p className="text-sm text-slate-700 dark:text-slate-300">
@@ -130,38 +210,6 @@ export default function CommentsPanel({
                             </Button>
                           )}
                         </div>
-
-                        {/* Render replies if they exist */}
-                        {comment.replies && comment.replies.length > 0 && (
-                          <div className="mt-3 space-y-2 border-l-2 border-slate-200 pl-3 dark:border-slate-600">
-                            {comment.replies.map(reply => (
-                              <div key={reply.id} className="text-sm">
-                                <div className="flex items-center space-x-2">
-                                  <Avatar className="h-4 w-4">
-                                    <AvatarImage
-                                      src={reply.avatar || "/placeholder.svg"}
-                                    />
-                                    <AvatarFallback className="text-xs">
-                                      {reply.author
-                                        .split(" ")
-                                        .map(n => n[0])
-                                        .join("")}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <span className="font-medium">
-                                    {reply.author}
-                                  </span>
-                                  <span className="text-xs text-slate-400">
-                                    {reply.timestamp}
-                                  </span>
-                                </div>
-                                <p className="mt-1 text-slate-600 dark:text-slate-400">
-                                  {reply.content}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </motion.div>
@@ -177,34 +225,37 @@ export default function CommentsPanel({
           </ScrollArea>
 
           {/* Comment Input - Fixed at bottom */}
-          {onAddComment && (
-            <div className="flex-shrink-0 border-t border-slate-200 p-4 dark:border-slate-700">
-              <div className="flex space-x-2">
-                <Textarea
-                  placeholder="Add a comment..."
-                  value={newComment}
-                  onChange={e => setNewComment(e.target.value)}
-                  className="min-h-[60px] flex-1 resize-none"
-                  onKeyDown={e => {
-                    if (e.key === "Enter" && e.ctrlKey) {
-                      handleSubmitComment();
-                    }
-                  }}
-                />
-                <Button
-                  size="sm"
-                  className="self-end"
-                  onClick={handleSubmitComment}
-                  disabled={!newComment.trim()}
-                >
+          <div className="flex-shrink-0 border-t border-slate-200 p-4 dark:border-slate-700">
+            <div className="flex space-x-2">
+              <Textarea
+                placeholder="Add a comment..."
+                value={newComment}
+                onChange={e => setNewComment(e.target.value)}
+                className="min-h-[60px] flex-1 resize-none"
+                onKeyDown={e => {
+                  if (e.key === "Enter" && e.ctrlKey) {
+                    handleSubmitComment();
+                  }
+                }}
+                disabled={isSubmitting}
+              />
+              <Button
+                size="sm"
+                className="self-end"
+                onClick={handleSubmitComment}
+                disabled={!newComment.trim() || isSubmitting}
+              >
+                {isSubmitting ? (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-background border-t-foreground" />
+                ) : (
                   <Send className="h-4 w-4" />
-                </Button>
-              </div>
-              <p className="mt-1 text-xs text-slate-500">
-                Press Ctrl+Enter to send
-              </p>
+                )}
+              </Button>
             </div>
-          )}
+            <p className="mt-1 text-xs text-slate-500">
+              Press Ctrl+Enter to send
+            </p>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
