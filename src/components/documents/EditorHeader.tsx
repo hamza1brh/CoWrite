@@ -33,14 +33,44 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useEffect, useState, useRef } from "react";
+import { cn } from "@/lib/utils";
 
+export type DocumentMode = "viewing" | "editing";
+export type UserRole = "owner" | "editor" | "viewer";
 
-import type {
-  DocumentMode,
-  UserRole,
-  Collaborator,
-  EditorHeaderProps,
-} from "@/lib/types/api";
+export interface Collaborator {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  status: "online" | "away" | "offline";
+  role: "owner" | "editor" | "viewer";
+  cursor?: {
+    x: number;
+    y: number;
+    color: string;
+  };
+}
+
+export interface EditorHeaderProps {
+  documentTitle: string;
+  onTitleChange: (title: string) => Promise<void>;
+  collaborators: Collaborator[];
+  showAI: boolean;
+  showComments: boolean;
+  onToggleAI: () => void;
+  onToggleComments: () => void;
+  unreadCommentsCount: number;
+  mode: DocumentMode;
+  userRole: UserRole;
+  onModeChange: (mode: DocumentMode) => void;
+  isDocumentOwner?: boolean;
+  onAddCollaborator?: (
+    email: string,
+    role: "EDITOR" | "VIEWER"
+  ) => Promise<void>;
+  onRemoveCollaborator?: (collaboratorId: string) => Promise<void>;
+}
 
 export default function EditorHeader({
   documentTitle,
@@ -55,6 +85,8 @@ export default function EditorHeader({
   userRole,
   onModeChange,
   isDocumentOwner = false,
+  onAddCollaborator,
+  onRemoveCollaborator,
 }: EditorHeaderProps) {
   const canEdit = userRole === "owner" || userRole === "editor";
 
@@ -67,26 +99,27 @@ export default function EditorHeader({
     setLocalTitle(documentTitle);
   }, [documentTitle]);
 
-  const handleModeToggle = () => {
-    if (mode === "viewing" && canEdit) {
+  const handleEditToggle = (pressed: boolean) => {
+    if (!canEdit) return;
+
+    if (pressed) {
       onModeChange("editing");
-    } else if (mode === "editing") {
+    } else {
       onModeChange("viewing");
     }
   };
 
   const handleTitleChange = (newTitle: string) => {
-    setLocalTitle(newTitle); // Immediate local update only
+    setLocalTitle(newTitle);
   };
 
   const handleTitleBlur = async () => {
     if (localTitle !== documentTitle) {
       try {
         console.log("💾 Saving title:", localTitle);
-        await onTitleChange(localTitle); // Save when user clicks away
+        await onTitleChange(localTitle);
       } catch (error) {
         console.error("Failed to save title:", error);
-        // Revert on error
         setLocalTitle(documentTitle);
       }
     }
@@ -100,6 +133,10 @@ export default function EditorHeader({
       setLocalTitle(documentTitle);
       titleInputRef.current?.blur();
     }
+  };
+
+  const handleInviteCollaborators = () => {
+    console.log("Opening invite collaborators dialog");
   };
 
   return (
@@ -144,9 +181,7 @@ export default function EditorHeader({
 
           {/* Right side - Actions */}
           <div className="flex shrink-0 items-center gap-2">
-            {/* Mode Toggle Button - Desktop */}
-            <div className="hidden items-center space-x-2 sm:flex">
-              {/* Role indicator for non-owners */}
+            <div className="hidden items-center space-x-3 sm:flex">
               {!isDocumentOwner && (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -165,39 +200,56 @@ export default function EditorHeader({
               )}
 
               {canEdit && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleModeToggle}
-                      className="relative"
-                    >
-                      {mode === "editing" ? (
-                        <>
-                          <Eye className="mr-2 h-4 w-4" />
-                          <span className="hidden lg:inline">View Mode</span>
-                        </>
-                      ) : (
-                        <>
-                          <Edit3 className="mr-2 h-4 w-4" />
-                          <span className="hidden lg:inline">Edit Mode</span>
-                        </>
-                      )}
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>
-                      {mode === "editing"
-                        ? "Switch to viewing mode"
-                        : "Switch to editing mode"}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
+                <div className="flex items-center space-x-3">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => handleEditToggle(mode !== "editing")}
+                        className={cn(
+                          "relative inline-flex h-6 w-11 items-center rounded-full border-2 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2",
+                          mode === "editing"
+                            ? "border-blue-600 bg-blue-600"
+                            : "border-gray-200 bg-gray-200 dark:border-gray-700 dark:bg-gray-700"
+                        )}
+                        role="switch"
+                        aria-checked={mode === "editing"}
+                        aria-label="Toggle edit mode"
+                      >
+                        <motion.span
+                          className={cn(
+                            "inline-block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform"
+                          )}
+                          animate={{
+                            transform:
+                              mode === "editing"
+                                ? "translateX(20px)"
+                                : "translateX(2px)",
+                          }}
+                          transition={{
+                            type: "spring",
+                            stiffness: 500,
+                            damping: 30,
+                          }}
+                        />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        {mode === "editing"
+                          ? "Turn off edit mode"
+                          : "Turn on edit mode"}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+
+                  <span className="hidden text-sm font-medium text-slate-700 dark:text-slate-300 lg:inline">
+                    Edit Mode
+                  </span>
+                </div>
               )}
             </div>
 
-            {/* Collaborators - Hide on very small screens */}
+            {/* Collaborators */}
             <div className="hidden items-center space-x-2 sm:flex">
               <div className="flex -space-x-2">
                 {collaborators.slice(0, 3).map(collaborator => (
@@ -238,9 +290,13 @@ export default function EditorHeader({
                 )}
               </div>
 
-              {/* Invite button for owners and editors */}
               {(userRole === "owner" || userRole === "editor") && (
-                <Button variant="outline" size="sm" className="hidden md:flex">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="hidden md:flex"
+                  onClick={handleInviteCollaborators}
+                >
                   <Plus className="mr-2 h-4 w-4" />
                   Invite
                 </Button>
@@ -303,21 +359,38 @@ export default function EditorHeader({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  {/* Mode Toggle - Mobile */}
                   {canEdit && (
                     <>
-                      <DropdownMenuItem onClick={handleModeToggle}>
-                        {mode === "editing" ? (
-                          <>
-                            <Eye className="mr-2 h-4 w-4" />
-                            Switch to View Mode
-                          </>
-                        ) : (
-                          <>
-                            <Edit3 className="mr-2 h-4 w-4" />
-                            Switch to Edit Mode
-                          </>
-                        )}
+                      <DropdownMenuItem
+                        onClick={() => handleEditToggle(mode !== "editing")}
+                        className="flex items-center justify-between"
+                      >
+                        <div className="flex items-center">
+                          <Edit3 className="mr-2 h-4 w-4" />
+                          Edit Mode
+                        </div>
+
+                        <div
+                          className={cn(
+                            "relative inline-flex h-4 w-7 items-center rounded-full",
+                            mode === "editing" ? "bg-blue-600" : "bg-gray-300"
+                          )}
+                        >
+                          <motion.div
+                            className="inline-block h-3 w-3 rounded-full bg-white shadow-sm"
+                            animate={{
+                              transform:
+                                mode === "editing"
+                                  ? "translateX(14px)"
+                                  : "translateX(2px)",
+                            }}
+                            transition={{
+                              type: "spring",
+                              stiffness: 500,
+                              damping: 30,
+                            }}
+                          />
+                        </div>
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                     </>
@@ -347,7 +420,7 @@ export default function EditorHeader({
                   </DropdownMenuItem>
 
                   {(userRole === "owner" || userRole === "editor") && (
-                    <DropdownMenuItem>
+                    <DropdownMenuItem onClick={handleInviteCollaborators}>
                       <Plus className="mr-2 h-4 w-4" />
                       Invite Collaborators
                     </DropdownMenuItem>
@@ -363,5 +436,3 @@ export default function EditorHeader({
     </TooltipProvider>
   );
 }
-
-export type { DocumentMode, UserRole };
