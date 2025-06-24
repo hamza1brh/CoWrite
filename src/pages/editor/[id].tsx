@@ -8,6 +8,7 @@ import LexicalEditor from "@/components/lexical/editor/LexicalEditor";
 import EditorHeader, {
   type DocumentMode,
   type UserRole,
+  type Collaborator,
 } from "@/components/documents/EditorHeader";
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
@@ -18,7 +19,6 @@ import type {
   DocumentWithDetails,
   CollaboratorWithUser,
 } from "@/lib/types/api";
-import { getCollaborators, type Collaborator } from "@/data/mockUsers";
 import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
 
 interface EditorDocument {
@@ -49,6 +49,21 @@ interface ApiComment {
   };
 }
 
+interface ApiCollaborator {
+  id: string;
+  role: "OWNER" | "EDITOR" | "VIEWER";
+  joinedAt: string;
+  documentId: string;
+  userId: string;
+  user: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    imageUrl?: string;
+  };
+}
+
 export default function DocumentEditor() {
   const router = useRouter();
   const { id } = router.query;
@@ -62,7 +77,7 @@ export default function DocumentEditor() {
   // Data State
   const [document, setDocument] = useState<EditorDocument | null>(null);
   const [comments, setComments] = useState<ApiComment[]>([]);
-  const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
+  const [collaborators, setCollaborators] = useState<ApiCollaborator[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]);
 
   // Loading States
@@ -73,7 +88,25 @@ export default function DocumentEditor() {
   const lastSavedContentRef = useRef<string>("");
   const isInitialLoadRef = useRef(true);
 
-  //  user role calculation
+  //  Transform API collaborators to EditorHeader Collaborator format
+  const transformCollaboratorsForHeader = useCallback(
+    (apiCollaborators: ApiCollaborator[]): Collaborator[] => {
+      return apiCollaborators.map(collab => ({
+        id: collab.id,
+        name:
+          `${collab.user.firstName} ${collab.user.lastName}`.trim() ||
+          collab.user.email,
+        email: collab.user.email,
+        avatar: collab.user.imageUrl,
+        status: "offline" as const, // TODO: Implement real-time presence
+        role: collab.role.toLowerCase() as "owner" | "editor" | "viewer",
+        // ✅ Add optional cursor property (can be undefined)
+        cursor: undefined,
+      }));
+    },
+    []
+  );
+
   const getUserRole = useCallback((): UserRole => {
     if (!document || !user) return "viewer";
 
@@ -82,14 +115,12 @@ export default function DocumentEditor() {
       return "owner";
     }
 
-    // Check collaborators (when the API is ready)
-    if (document.collaborators && document.collaborators.length > 0) {
-      const userCollaboration = document.collaborators.find(
-        collab => collab.user.clerkId === user.id
+    if (collaborators && collaborators.length > 0) {
+      const userCollaboration = collaborators.find(
+        collab => collab.user.id === user.id
       );
 
       if (userCollaboration) {
-        //  Prisma Role enum to UserRole
         switch (userCollaboration.role) {
           case "OWNER":
             return "owner";
@@ -103,15 +134,14 @@ export default function DocumentEditor() {
       }
     }
 
-    // ✅ Future: Check if document is public
+    // Check if document is public
     if (document.isPublic) {
       return "viewer";
     }
 
-    // ✅ Current fallback: For now, give edit access to authenticated users
-    // TODO: Remove this when collaborator management is implemented
+    // For now, give edit access to authenticated users (fallback)
     return "editor";
-  }, [document, user]);
+  }, [document, user, collaborators]);
 
   // Calculate user role dynamically
   const userRole = getUserRole();
@@ -167,14 +197,12 @@ export default function DocumentEditor() {
         lastSavedContentRef.current = transformedDoc.content;
         isInitialLoadRef.current = true;
 
-        const [commentsResponse, collaboratorsData, aiData] = await Promise.all(
-          [
+        const [commentsResponse, collaboratorsResponse, aiData] =
+          await Promise.all([
             fetch(`/api/documents/${id}/comments`),
-            // Keep mock data for now
-            getCollaborators(id),
+            fetch(`/api/documents/${id}/collaborators`),
             getAISuggestions(id),
-          ]
-        );
+          ]);
 
         if (commentsResponse.ok) {
           const commentsData = await commentsResponse.json();
@@ -185,7 +213,18 @@ export default function DocumentEditor() {
           setComments([]);
         }
 
-        setCollaborators(collaboratorsData);
+        if (collaboratorsResponse.ok) {
+          const collaboratorsData = await collaboratorsResponse.json();
+          setCollaborators(collaboratorsData);
+          console.log("✅ Loaded collaborators:", collaboratorsData.length);
+        } else {
+          console.warn(
+            "❌ Failed to load collaborators:",
+            collaboratorsResponse.status
+          );
+          setCollaborators([]);
+        }
+
         setAiSuggestions(aiData);
       } catch (err) {
         console.error("❌ Error fetching document:", err);
@@ -208,6 +247,64 @@ export default function DocumentEditor() {
       }
     }
   }, [document, userRole]);
+
+  // Collaborator management functions
+  const handleAddCollaborator = async (
+    email: string,
+    role: "EDITOR" | "VIEWER"
+  ) => {
+    if (!document) return;
+
+    try {
+      const response = await fetch(
+        `/api/documents/${document.id}/collaborators`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            role,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to add collaborator");
+      }
+
+      const newCollaborator = await response.json();
+      setCollaborators(prev => [...prev, newCollaborator]);
+      console.log("✅ Collaborator added:", newCollaborator);
+    } catch (error) {
+      console.error("❌ Failed to add collaborator:", error);
+      throw error;
+    }
+  };
+
+  const handleRemoveCollaborator = async (collaboratorId: string) => {
+    if (!document) return;
+
+    try {
+      const response = await fetch(
+        `/api/documents/${document.id}/collaborators/${collaboratorId}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to remove collaborator");
+      }
+
+      setCollaborators(prev => prev.filter(c => c.id !== collaboratorId));
+      console.log("✅ Collaborator removed:", collaboratorId);
+    } catch (error) {
+      console.error("❌ Failed to remove collaborator:", error);
+      throw error;
+    }
+  };
 
   // Auto-save hook
   const { save: autoSave } = useAutoSave({
@@ -373,16 +470,18 @@ export default function DocumentEditor() {
           <EditorHeader
             documentTitle={document.title}
             onTitleChange={handleTitleChange}
-            collaborators={collaborators}
+            collaborators={transformCollaboratorsForHeader(collaborators)}
             showAI={showAI}
             showComments={showComments}
             onToggleAI={() => setShowAI(!showAI)}
             onToggleComments={() => setShowComments(!showComments)}
             unreadCommentsCount={unreadCommentsCount}
             mode={mode}
-            userRole={userRole} // ✅ Now properly calculated
+            userRole={userRole}
             onModeChange={handleModeChange}
             isDocumentOwner={userRole === "owner"}
+            onAddCollaborator={handleAddCollaborator}
+            onRemoveCollaborator={handleRemoveCollaborator}
           />
 
           <div className="flex flex-1 overflow-hidden">
