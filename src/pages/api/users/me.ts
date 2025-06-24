@@ -6,41 +6,69 @@ export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const { userId } = getAuth(req);
-  if (!userId) {
-    return res.status(401).json({ error: "Unauthorized" });
+  if (req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed" });
   }
 
-  if (req.method === "GET") {
-    const user = await prisma.user.findUnique({
-      where: { clerkId: userId },
-      include: {
-        ownedDocuments: {
-          orderBy: { updatedAt: "desc" },
-          take: 5,
-        },
-        collaboratorOn: {
-          include: {
-            document: true,
-          },
-        },
-        _count: {
-          select: {
-            ownedDocuments: true,
-            collaboratorOn: true,
-            comments: true,
-          },
-        },
+  try {
+    const { userId } = getAuth(req);
+
+    console.log("🔍 /api/users/me - Debug:", {
+      userId,
+      hasUserId: !!userId,
+      userIdType: typeof userId,
+    });
+
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+
+  
+    const allUsers = await prisma.user.findMany({
+      select: {
+        id: true,
+        clerkId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
       },
     });
 
+    console.log("🔍 All users in database:", allUsers);
+
+
+    const user = await prisma.user.findUnique({
+      where: { clerkId: userId },
+      select: {
+        id: true,
+        clerkId: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        imageUrl: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    console.log("🔍 User found by Clerk ID:", user);
+
     if (!user) {
-      return res.status(404).json({ error: "User not found" });
+      return res.status(404).json({
+        error: "User not found in database",
+        debug: {
+          searchedClerkId: userId,
+          allUsersInDb: allUsers.length,
+          allClerkIds: allUsers.map(u => u.clerkId),
+        },
+      });
     }
 
-    return res.json(user);
-  }
+    console.log("✅ Database user found:", { id: user.id, email: user.email });
 
-  res.setHeader("Allow", ["GET"]);
-  return res.status(405).json({ error: "Method not allowed" });
+    res.json(user);
+  } catch (error) {
+    console.error("Error fetching user:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 }
