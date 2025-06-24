@@ -85,6 +85,7 @@ const DialogFooter = ({
 );
 DialogFooter.displayName = "DialogFooter";
 
+// ✅ FORCE FONT FAMILY ON DIALOG TITLE
 const DialogTitle = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Title>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>
@@ -101,6 +102,7 @@ const DialogTitle = React.forwardRef<
 ));
 DialogTitle.displayName = DialogPrimitive.Title.displayName;
 
+// ✅ FORCE FONT FAMILY ON DIALOG DESCRIPTION
 const DialogDescription = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Description>,
   React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>
