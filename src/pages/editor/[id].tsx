@@ -12,8 +12,10 @@ import EditorHeader, {
 } from "@/components/documents/EditorHeader";
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
+import CollaboratorPanel from "@/components/documents/CollaboratorPanel";
 import { useUser } from "@clerk/nextjs";
 import { useAutoSave } from "@/hooks/useAutoSave";
+import { useEditorPermissions } from "@/hooks/useEditorPermissions";
 
 import type {
   DocumentWithDetails,
@@ -67,11 +69,14 @@ interface ApiCollaborator {
 export default function DocumentEditor() {
   const router = useRouter();
   const { id } = router.query;
-  const { user, isLoaded } = useUser();
+  const { user: clerkUser, isLoaded } = useUser();
+
+  const [databaseUser, setDatabaseUser] = useState<any>(null);
 
   // UI State
   const [showComments, setShowComments] = useState(false);
   const [showAI, setShowAI] = useState(false);
+  const [showCollaborators, setShowCollaborators] = useState(false);
   const [mode, setMode] = useState<DocumentMode>("viewing");
 
   // Data State
@@ -108,19 +113,40 @@ export default function DocumentEditor() {
   );
 
   const getUserRole = useCallback((): UserRole => {
-    if (!document || !user) return "viewer";
+    if (!document || !databaseUser) return "viewer";
 
-    // Check if user is the document owner
-    if (document.ownerId === user.id) {
+    console.log("🔍 getUserRole Debug:", {
+      documentOwnerId: document.ownerId,
+      databaseUserId: databaseUser.id,
+      clerkUserId: clerkUser?.id,
+      isOwnerByDocumentId: document.ownerId === databaseUser.id,
+      collaboratorsCount: collaborators.length,
+      collaboratorsDetailed: collaborators.map(c => ({
+        id: c.id,
+        userId: c.userId,
+        role: c.role,
+        email: c.user?.email,
+        matchesUserId: c.userId === databaseUser.id,
+      })),
+    });
+
+    // ✅ Check if user is the document owner
+    if (document.ownerId === databaseUser.id) {
+      console.log("✅ User is document owner");
       return "owner";
     }
 
     if (collaborators && collaborators.length > 0) {
+      // ✅ Find collaboration using database user ID
       const userCollaboration = collaborators.find(
-        collab => collab.user.id === user.id
+        collab => collab.userId === databaseUser.id
       );
 
+      console.log("🔍 User collaboration found:", userCollaboration);
+
       if (userCollaboration) {
+        console.log("✅ User collaboration role:", userCollaboration.role);
+
         switch (userCollaboration.role) {
           case "OWNER":
             return "owner";
@@ -134,28 +160,87 @@ export default function DocumentEditor() {
       }
     }
 
-    // Check if document is public
     if (document.isPublic) {
+      console.log("📖 Document is public, user is viewer");
       return "viewer";
     }
 
-    // For now, give edit access to authenticated users (fallback)
-    return "editor";
-  }, [document, user, collaborators]);
+    console.log("❌ No role found, defaulting to viewer");
+    return "viewer";
+  }, [document, databaseUser, clerkUser?.id, collaborators]);
 
   // Calculate user role dynamically
   const userRole = getUserRole();
 
+  // Permissions
+  const { isEditable, isReadOnly } = useEditorPermissions(userRole);
+
+  useEffect(() => {
+    if (!isLoaded || !clerkUser) return;
+
+    const fetchOrCreateDatabaseUser = async () => {
+      try {
+        console.log("🔍 Fetching/creating database user for:", {
+          clerkUserId: clerkUser.id,
+          email: clerkUser.primaryEmailAddress?.emailAddress,
+        });
+
+        const response = await fetch("/api/users/me");
+
+        if (response.ok) {
+          const dbUser = await response.json();
+          setDatabaseUser(dbUser);
+          console.log("✅ Database user found:", dbUser);
+          return;
+        }
+
+        console.log("🔄 User not found, attempting to create/sync...");
+
+        const createResponse = await fetch("/api/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            clerkId: clerkUser.id,
+            email: clerkUser.primaryEmailAddress?.emailAddress || "",
+            firstName: clerkUser.firstName || "",
+            lastName: clerkUser.lastName || "",
+            imageUrl: clerkUser.imageUrl || "",
+          }),
+        });
+
+        if (createResponse.ok) {
+          const newUser = await createResponse.json();
+          setDatabaseUser(newUser);
+          console.log("✅ Database user created/synced:", newUser);
+        } else {
+          const errorData = await createResponse.json();
+          console.error("❌ Failed to create/sync user:", errorData);
+        }
+      } catch (error) {
+        console.error("❌ Error in user fetch/create:", error);
+      }
+    };
+
+    fetchOrCreateDatabaseUser();
+  }, [isLoaded, clerkUser]);
+
   // Redirect if not authenticated
   useEffect(() => {
-    if (isLoaded && !user) {
+    if (isLoaded && !clerkUser) {
       router.replace("/welcome");
     }
-  }, [isLoaded, user, router]);
+  }, [isLoaded, clerkUser, router]);
 
   // Fetch document
   useEffect(() => {
-    if (!id || typeof id !== "string" || !isLoaded || !user) return;
+    if (
+      !id ||
+      typeof id !== "string" ||
+      !isLoaded ||
+      !clerkUser ||
+      !databaseUser
+    )
+      return;
 
     const fetchData = async () => {
       try {
@@ -235,7 +320,7 @@ export default function DocumentEditor() {
     };
 
     fetchData();
-  }, [id, isLoaded, user]);
+  }, [id, isLoaded, clerkUser, databaseUser]);
 
   // Set editing mode based on user role
   useEffect(() => {
@@ -302,6 +387,46 @@ export default function DocumentEditor() {
       console.log("✅ Collaborator removed:", collaboratorId);
     } catch (error) {
       console.error("❌ Failed to remove collaborator:", error);
+      throw error;
+    }
+  };
+
+  const handleChangeRole = async (
+    collaboratorId: string,
+    role: "EDITOR" | "VIEWER"
+  ) => {
+    if (!document) return;
+
+    try {
+      const response = await fetch(
+        `/api/documents/${document.id}/collaborators/${collaboratorId}`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ role }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to change role");
+      }
+
+      const updatedCollaborator = await response.json();
+
+      // Update collaborators state
+      setCollaborators(prev =>
+        prev.map(c =>
+          c.id === collaboratorId
+            ? { ...c, role: role as "OWNER" | "EDITOR" | "VIEWER" }
+            : c
+        )
+      );
+
+      console.log("✅ Collaborator role changed:", updatedCollaborator);
+    } catch (error) {
+      console.error("❌ Failed to change role:", error);
       throw error;
     }
   };
@@ -431,7 +556,7 @@ export default function DocumentEditor() {
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
 
   // Loading state
-  if (!isLoaded || !user || loading) {
+  if (!isLoaded || !clerkUser || !databaseUser || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -482,6 +607,11 @@ export default function DocumentEditor() {
             isDocumentOwner={userRole === "owner"}
             onAddCollaborator={handleAddCollaborator}
             onRemoveCollaborator={handleRemoveCollaborator}
+            onChangeRole={handleChangeRole}
+            showCollaborators={showCollaborators}
+            onToggleCollaborators={() =>
+              setShowCollaborators(!showCollaborators)
+            }
           />
 
           <div className="flex flex-1 overflow-hidden">
@@ -502,6 +632,22 @@ export default function DocumentEditor() {
 
             {/* Desktop Panels */}
             <div className="hidden lg:flex">
+              {showCollaborators && (
+                <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                  <CollaboratorPanel
+                    isOpen={true}
+                    onClose={() => setShowCollaborators(false)}
+                    collaborators={transformCollaboratorsForHeader(
+                      collaborators
+                    )}
+                    currentUserRole={userRole}
+                    onAddCollaborator={handleAddCollaborator}
+                    onRemoveCollaborator={handleRemoveCollaborator}
+                    onChangeRole={handleChangeRole}
+                  />
+                </div>
+              )}
+
               {showAI && (
                 <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
                   <AiAssistantPanel
@@ -540,14 +686,29 @@ export default function DocumentEditor() {
 
           {/* Mobile Panels */}
           <div className="lg:hidden">
-            {(showAI || showComments) && (
+            {(showAI || showComments || showCollaborators) && (
               <div
                 className="fixed inset-0 z-50 bg-black/50"
                 onClick={() => {
                   setShowAI(false);
                   setShowComments(false);
+                  setShowCollaborators(false);
                 }}
               />
+            )}
+
+            {showCollaborators && (
+              <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
+                <CollaboratorPanel
+                  isOpen={true}
+                  onClose={() => setShowCollaborators(false)}
+                  collaborators={transformCollaboratorsForHeader(collaborators)}
+                  currentUserRole={userRole}
+                  onAddCollaborator={handleAddCollaborator}
+                  onRemoveCollaborator={handleRemoveCollaborator}
+                  onChangeRole={handleChangeRole}
+                />
+              </div>
             )}
 
             {showAI && (

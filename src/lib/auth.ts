@@ -9,31 +9,24 @@ export async function getUserFromRequest(req: NextApiRequest) {
     throw new Error("Unauthorized");
   }
 
+  console.log("🔍 getUserFromRequest - Clerk ID:", userId);
+
+
   let user = await prisma.user.findUnique({
     where: { clerkId: userId },
   });
 
-  if (!user && process.env.NODE_ENV === "development") {
-    console.log(
-      "User not synced locally, using first available user for testing..."
-    );
-
-    user = await prisma.user.findFirst();
-
-    if (!user) {
-      throw new Error(
-        "No users found in database. Please test in production or add a user via webhook."
-      );
-    }
-
-    console.log("Using test user:", user.email);
+  if (user) {
+    console.log("✅ User found by Clerk ID:", user.email);
+    return user;
   }
 
-  if (!user) {
-    throw new Error("User not found in database");
-  }
+  // Strategy 2: If not found, this might be a different environment
 
-  return user;
+  console.log("❌ User not found by Clerk ID:", userId);
+  console.log("💡 Hint: User might need to be synced between environments");
+
+  throw new Error("User not found in database");
 }
 
 export function requireAuth(req: NextApiRequest) {
