@@ -18,20 +18,35 @@ import type {
   DocumentWithDetails,
   CollaboratorWithUser,
 } from "@/lib/types/api";
-import { getComments, addComment, type Comment } from "@/data/mockComments";
 import { getCollaborators, type Collaborator } from "@/data/mockUsers";
 import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
 
-//  simplified document interface for the editor
 interface EditorDocument {
   id: string;
   title: string;
-  content: string; // JSON string from Lexical
+  content: string;
   ownerId: string;
   collaborators: CollaboratorWithUser[];
   isPublic: boolean;
   lastModified: string;
   createdAt: string;
+}
+
+interface ApiComment {
+  id: string;
+  content: string;
+  resolved: boolean;
+  createdAt: string;
+  updatedAt: string;
+  documentId: string;
+  authorId: string;
+  author: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+    imageUrl?: string;
+  };
 }
 
 export default function DocumentEditor() {
@@ -46,7 +61,7 @@ export default function DocumentEditor() {
 
   // Data State
   const [document, setDocument] = useState<EditorDocument | null>(null);
-  const [comments, setComments] = useState<Comment[]>([]);
+  const [comments, setComments] = useState<ApiComment[]>([]);
   const [collaborators, setCollaborators] = useState<Collaborator[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]);
 
@@ -117,6 +132,7 @@ export default function DocumentEditor() {
         setLoading(true);
         setError(null);
 
+        // Fetch document
         const response = await fetch(`/api/documents/${id}`);
 
         if (!response.ok) {
@@ -133,7 +149,6 @@ export default function DocumentEditor() {
         const docData = await response.json();
         console.log("Loaded document:", docData);
 
-        // Transform API response to editor format
         const transformedDoc: EditorDocument = {
           id: docData.id,
           title: docData.title,
@@ -152,14 +167,24 @@ export default function DocumentEditor() {
         lastSavedContentRef.current = transformedDoc.content;
         isInitialLoadRef.current = true;
 
-        // mock data for UI components
-        const [commentsData, collaboratorsData, aiData] = await Promise.all([
-          getComments(id),
-          getCollaborators(id),
-          getAISuggestions(id),
-        ]);
+        const [commentsResponse, collaboratorsData, aiData] = await Promise.all(
+          [
+            fetch(`/api/documents/${id}/comments`),
+            // Keep mock data for now
+            getCollaborators(id),
+            getAISuggestions(id),
+          ]
+        );
 
-        setComments(commentsData);
+        if (commentsResponse.ok) {
+          const commentsData = await commentsResponse.json();
+          setComments(commentsData);
+          console.log("✅ Loaded comments:", commentsData.length);
+        } else {
+          console.warn("❌ Failed to load comments:", commentsResponse.status);
+          setComments([]);
+        }
+
         setCollaborators(collaboratorsData);
         setAiSuggestions(aiData);
       } catch (err) {
@@ -291,23 +316,21 @@ export default function DocumentEditor() {
     [document, autoSave]
   );
 
-  // Handle adding comments
-  const handleAddComment = async (content: string) => {
-    try {
-      if (!id || typeof id !== "string" || !user) return;
-
-      const newComment = await addComment(
-        id,
-        content,
-        user.fullName || user.firstName || "Anonymous"
-      );
-      setComments(prev => [newComment, ...prev]);
-    } catch (error) {
-      console.error("Failed to add comment:", error);
-    }
+  const handleAddComment = (newCommentData: ApiComment) => {
+    setComments(prev => [newCommentData, ...prev]);
+    console.log("✅ Comment added to state:", newCommentData);
   };
 
-  // Calculate unread comments
+  const handleResolveComment = (commentId: string) => {
+    setComments(prev =>
+      prev.map(comment =>
+        comment.id === commentId ? { ...comment, resolved: true } : comment
+      )
+    );
+    console.log("✅ Comment resolved in state:", commentId);
+  };
+
+  // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
 
   // Loading state
@@ -407,14 +430,9 @@ export default function DocumentEditor() {
                     isOpen={true}
                     onClose={() => setShowComments(false)}
                     comments={comments}
+                    documentId={document.id}
                     onAddComment={handleAddComment}
-                    onResolveComment={commentId => {
-                      setComments(prev =>
-                        prev.map(c =>
-                          c.id === commentId ? { ...c, resolved: true } : c
-                        )
-                      );
-                    }}
+                    onResolveComment={handleResolveComment}
                   />
                 </div>
               )}
@@ -460,14 +478,9 @@ export default function DocumentEditor() {
                   isOpen={true}
                   onClose={() => setShowComments(false)}
                   comments={comments}
+                  documentId={document.id}
                   onAddComment={handleAddComment}
-                  onResolveComment={commentId => {
-                    setComments(prev =>
-                      prev.map(c =>
-                        c.id === commentId ? { ...c, resolved: true } : c
-                      )
-                    );
-                  }}
+                  onResolveComment={handleResolveComment}
                 />
               </div>
             )}
