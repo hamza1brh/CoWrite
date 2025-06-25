@@ -80,6 +80,9 @@ export default function CollaboratorPanel({
   const [collaboratorToRemove, setCollaboratorToRemove] =
     useState<Collaborator | null>(null);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [changingRoleForId, setChangingRoleForId] = useState<string | null>(
+    null
+  );
 
   const canManageCollaborators = currentUserRole === "owner";
 
@@ -103,14 +106,53 @@ export default function CollaboratorPanel({
     collaboratorId: string,
     newRole: "EDITOR" | "VIEWER"
   ) => {
-    if (!onChangeRole) return;
+    if (!onChangeRole) {
+      console.error("❌ onChangeRole function not provided");
+      return;
+    }
+
+    const collaborator = collaborators.find(c => c.id === collaboratorId);
+    if (!collaborator) {
+      console.error("❌ Collaborator not found:", collaboratorId);
+      return;
+    }
+
+    // ✅ Convert current role to uppercase for comparison
+    const currentRole = collaborator.role.toUpperCase();
+
+    console.log("🔄 Role change request:", {
+      collaboratorId,
+      collaboratorName: collaborator.name,
+      currentRole,
+      newRole,
+      hasChange: currentRole !== newRole,
+    });
+
+    // ✅ Prevent unnecessary API calls
+    if (currentRole === newRole) {
+      console.log("✅ No role change needed");
+      return;
+    }
+
+    setChangingRoleForId(collaboratorId);
 
     try {
       await onChangeRole(collaboratorId, newRole);
-      toast.success("Permission updated successfully");
+
+      console.log("✅ Role change successful:", {
+        collaboratorId,
+        from: currentRole,
+        to: newRole,
+      });
+
+      toast.success(
+        `${collaborator.name}'s permission updated to ${newRole.toLowerCase()}`
+      );
     } catch (error) {
-      console.error("Failed to change role:", error);
-      toast.error("Failed to update permission");
+      console.error("❌ Failed to change role:", error);
+      toast.error("Failed to update permission. Please try again.");
+    } finally {
+      setChangingRoleForId(null);
     }
   };
 
@@ -232,7 +274,9 @@ export default function CollaboratorPanel({
                                 </AvatarFallback>
                               </Avatar>
                               <div
-                                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 ${getStatusDotColor(collaborator.status)}`}
+                                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 ${getStatusDotColor(
+                                  collaborator.status
+                                )}`}
                               />
                             </div>
 
@@ -265,10 +309,11 @@ export default function CollaboratorPanel({
                               </Badge>
                             ) : canManageCollaborators && onChangeRole ? (
                               <Select
-                                value={collaborator.role.toUpperCase()}
+                                value={collaborator.role.toUpperCase()} // ✅ Ensure uppercase
                                 onValueChange={(value: "EDITOR" | "VIEWER") =>
                                   handleRoleChange(collaborator.id, value)
                                 }
+                                disabled={changingRoleForId === collaborator.id}
                               >
                                 <SelectTrigger className="h-7 w-20 text-xs">
                                   <SelectValue />

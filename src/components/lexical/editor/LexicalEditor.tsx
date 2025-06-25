@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
+import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { CollaborationPlugin } from "@lexical/react/LexicalCollaborationPlugin";
 import type { Provider } from "@lexical/yjs";
 import * as Y from "yjs";
@@ -32,9 +33,38 @@ interface LexicalEditorProps {
   readOnly?: boolean;
   initialContent?: any;
   onContentChange?: (editorState: any) => void;
+  userRole?: "owner" | "editor" | "viewer";
 }
 
-// default empty Lexical editor state
+function EditableStateController({
+  readOnly,
+  userRole,
+}: {
+  readOnly: boolean;
+  userRole?: "owner" | "editor" | "viewer";
+}) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    const isEditable =
+      !readOnly && (userRole === "owner" || userRole === "editor");
+
+    console.log("🔍 Updating editor editable state:", {
+      readOnly,
+      userRole,
+      isEditable,
+      currentEditable: editor.isEditable(),
+    });
+
+    if (editor.isEditable() !== isEditable) {
+      editor.setEditable(isEditable);
+      console.log("✅ Editor editable state updated to:", isEditable);
+    }
+  }, [editor, readOnly, userRole]);
+
+  return null;
+}
+
 const DEFAULT_EDITOR_STATE = JSON.stringify({
   root: {
     children: [
@@ -62,6 +92,7 @@ export default function LexicalEditor({
   readOnly = false,
   initialContent = null,
   onContentChange,
+  userRole = "viewer",
 }: LexicalEditorProps) {
   const [userProfile, setUserProfile] = useState<UserProfile>(() => ({
     name: "User " + Math.floor(Math.random() * 1000),
@@ -192,13 +223,17 @@ export default function LexicalEditor({
       throw error;
     },
     theme: lexicalTheme,
-    editable: !readOnly,
+    // ✅ Set initial editable state based on role
+    editable: !readOnly && (userRole === "owner" || userRole === "editor"),
   };
+
+  // ✅ Calculate if user can actually edit
+  const canEdit = !readOnly && (userRole === "owner" || userRole === "editor");
 
   return (
     <div
       ref={containerRef}
-      className={cn("relative", readOnly && "opacity-90", className)}
+      className={cn("relative", !canEdit && "opacity-90", className)}
     >
       <UserControlPanel
         userProfile={userProfile}
@@ -218,16 +253,16 @@ export default function LexicalEditor({
           cursorsContainerRef={containerRef}
         /> */}
 
-        {/* Toolbar - Only show when not read-only and showToolbar is true */}
-        {showToolbar && !readOnly && (
+        {/* Toolbar - Only show when user can edit and showToolbar is true */}
+        {showToolbar && canEdit && (
           <div className="surface-elevated mb-4 border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
             <LexicalToolbarRich />
           </div>
         )}
 
-        {/* Read-only indicator */}
-        {readOnly && (
-          <div className="mb-4 flex items-center justify-center rounded-md bg-slate-100 px-4 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-400">
+        {/* Permission indicator for ALL non-editable states */}
+        {!canEdit && (
+          <div className="mb-4 flex items-center justify-center rounded-md bg-yellow-50 px-4 py-2 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
             <svg
               className="mr-2 h-4 w-4"
               fill="none"
@@ -247,16 +282,20 @@ export default function LexicalEditor({
                 d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
               />
             </svg>
-            Viewing Mode - Document is read-only
+            {readOnly
+              ? "Document is read-only"
+              : userRole === "viewer"
+                ? "You have view-only access to this document"
+                : "No edit permissions"}
           </div>
         )}
 
-        {/* Editor component*/}
+        {/* Editor component */}
         <Editor
           floatingAnchorElem={floatingAnchorElem}
           isSmallWidthViewport={isSmallWidthViewport}
           onRef={onRef}
-          readOnly={readOnly}
+          readOnly={!canEdit} 
           onContentChange={onContentChange}
           hasInitialContent={!!initialContent}
         />
