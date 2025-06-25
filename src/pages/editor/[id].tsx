@@ -192,50 +192,85 @@ export default function DocumentEditor() {
   useEffect(() => {
     if (!isLoaded || !clerkUser) return;
 
-    const fetchOrCreateDatabaseUser = async () => {
+    const fetchDatabaseUser = async () => {
       try {
-        console.log("🔍 Fetching/creating database user for:", {
-          clerkUserId: clerkUser.id,
-          email: clerkUser.primaryEmailAddress?.emailAddress,
-        });
+        console.log(
+          "🔍 Fetching database user (webhook should have created it):",
+          {
+            clerkUserId: clerkUser.id,
+            email: clerkUser.primaryEmailAddress?.emailAddress,
+          }
+        );
 
+        // ✅ Primary: Try to get user (should exist via webhook)
         const response = await fetch("/api/users/me");
 
         if (response.ok) {
           const dbUser = await response.json();
           setDatabaseUser(dbUser);
-          console.log("✅ Database user found:", dbUser);
+          console.log(
+            "✅ Database user found (created by webhook):",
+            dbUser.id
+          );
           return;
         }
 
-        console.log("🔄 User not found, attempting to create/sync...");
+        // ❌ Fallback: User not found (webhook failed/delayed)
+        if (response.status === 404) {
+          console.warn(
+            "⚠️ Database user not found - webhook may have failed or is delayed"
+          );
+          console.log(
+            "🔄 Creating user as fallback (webhook should have done this)..."
+          );
 
-        const createResponse = await fetch("/api/users", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            clerkId: clerkUser.id,
-            email: clerkUser.primaryEmailAddress?.emailAddress || "",
-            firstName: clerkUser.firstName || "",
-            lastName: clerkUser.lastName || "",
-            imageUrl: clerkUser.imageUrl || "",
-          }),
-        });
+          // ✅ Retry after a short delay (webhook might be processing)
+          await new Promise(resolve => setTimeout(resolve, 2000));
 
-        if (createResponse.ok) {
-          const newUser = await createResponse.json();
-          setDatabaseUser(newUser);
-          console.log("✅ Database user created/synced:", newUser);
-        } else {
-          const errorData = await createResponse.json();
-          console.error("❌ Failed to create/sync user:", errorData);
+          const retryResponse = await fetch("/api/users/me");
+          if (retryResponse.ok) {
+            const dbUser = await retryResponse.json();
+            setDatabaseUser(dbUser);
+            console.log(
+              "✅ Database user found on retry (webhook completed):",
+              dbUser.id
+            );
+            return;
+          }
+
+          // ✅ Last resort: Create user manually
+          const createResponse = await fetch("/api/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              clerkId: clerkUser.id,
+              email: clerkUser.primaryEmailAddress?.emailAddress || "",
+              firstName: clerkUser.firstName || "",
+              lastName: clerkUser.lastName || "",
+              imageUrl: clerkUser.imageUrl || "",
+            }),
+          });
+
+          if (createResponse.ok) {
+            const newUser = await createResponse.json();
+            setDatabaseUser(newUser);
+            console.warn(
+              "⚠️ Database user created manually (webhook backup):",
+              newUser.id
+            );
+          } else {
+            console.error(
+              "❌ Manual user creation failed:",
+              await createResponse.text()
+            );
+          }
         }
       } catch (error) {
-        console.error("❌ Error in user fetch/create:", error);
+        console.error("❌ Error in user fetch:", error);
       }
     };
 
-    fetchOrCreateDatabaseUser();
+    fetchDatabaseUser();
   }, [isLoaded, clerkUser]);
 
   // Redirect if not authenticated
@@ -678,6 +713,8 @@ export default function DocumentEditor() {
     );
   };
 
+  const isReadOnly = userRole === "viewer";
+
   return (
     <SidebarProvider>
       <AppSidebar />
@@ -713,7 +750,7 @@ export default function DocumentEditor() {
                     showToolbar={mode === "editing"}
                     className="min-h-full"
                     documentId={document.id}
-                    readOnly={mode === "viewing"}
+                    readOnly={isReadOnly}
                     initialContent={document.content}
                     onContentChange={handleContentChange}
                     userRole={userRole}

@@ -25,52 +25,82 @@ export default async function handler(
       "svix-signature": headers["svix-signature"] as string,
     });
   } catch (err) {
-    console.error("Webhook verification failed:", err);
+    console.error("❌ Webhook verification failed:", err);
     return res.status(400).json({ error: "Webhook verification failed" });
   }
 
   const eventType = evt.type;
-  console.log("Webhook received:", eventType);
+  console.log("📨 Webhook received:", eventType, "for user:", evt.data.id);
 
   try {
     if (eventType === "user.created" || eventType === "user.updated") {
       const { id, first_name, last_name, email_addresses, image_url } =
         evt.data;
 
-      console.log("Syncing user:", id);
+      console.log("🔄 Syncing user:", {
+        clerkId: id,
+        email: email_addresses[0]?.email_address,
+        eventType,
+      });
 
-      await prisma.user.upsert({
+      const syncedUser = await prisma.user.upsert({
         where: { clerkId: id },
         update: {
-          firstName: first_name,
-          lastName: last_name,
-          email: email_addresses[0]?.email_address,
-          imageUrl: image_url,
+          firstName: first_name || "",
+          lastName: last_name || "",
+          email: email_addresses[0]?.email_address || "",
+          imageUrl: image_url || "",
         },
         create: {
           clerkId: id,
-          firstName: first_name,
-          lastName: last_name,
-          email: email_addresses[0]?.email_address,
-          imageUrl: image_url,
+          firstName: first_name || "",
+          lastName: last_name || "",
+          email: email_addresses[0]?.email_address || "",
+          imageUrl: image_url || "",
         },
       });
 
-      console.log("User synced successfully:", id);
+      console.log("✅ User synced successfully:", {
+        id: syncedUser.id,
+        clerkId: syncedUser.clerkId,
+        email: syncedUser.email,
+        eventType,
+      });
     }
 
     if (eventType === "user.deleted") {
       const { id } = evt.data;
-      console.log("Deleting user:", id);
+      console.log("🗑️ Deleting user:", id);
 
-      await prisma.user.delete({
-        where: { clerkId: id },
-      });
+      // ✅ Fix: Use correct model name 'documentCollaborator'
+      await prisma.$transaction([
+        // Delete document collaborations
+        prisma.documentCollaborator.deleteMany({
+          where: { user: { clerkId: id } },
+        }),
+        // Delete comments by this user
+        prisma.comment.deleteMany({
+          where: {
+            author: { clerkId: id },
+          },
+        }),
+        // Handle documents owned by this user
+        // Option 1: Delete all documents (destructive)
+        prisma.document.deleteMany({
+          where: {
+            owner: { clerkId: id },
+          },
+        }),
+        // Finally, delete the user
+        prisma.user.delete({
+          where: { clerkId: id },
+        }),
+      ]);
 
-      console.log("User deleted successfully:", id);
+      console.log("✅ User and related data deleted successfully:", id);
     }
   } catch (dbError) {
-    console.error("Database error:", dbError);
+    console.error("❌ Database error in webhook:", dbError);
     return res.status(500).json({
       error:
         dbError instanceof Error ? dbError.message : "Database sync failed",
