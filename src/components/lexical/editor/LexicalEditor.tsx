@@ -49,16 +49,26 @@ function EditableStateController({
     const isEditable =
       !readOnly && (userRole === "owner" || userRole === "editor");
 
-    console.log("🔍 Updating editor editable state:", {
+    console.log("🔍 EditableStateController - Updating editor state:", {
       readOnly,
       userRole,
       isEditable,
       currentEditable: editor.isEditable(),
+      needsUpdate: editor.isEditable() !== isEditable,
+      timestamp: new Date().toISOString(),
     });
 
-    if (editor.isEditable() !== isEditable) {
-      editor.setEditable(isEditable);
-      console.log("✅ Editor editable state updated to:", isEditable);
+    // ✅ Always set the editable state (even if it seems the same)
+    editor.setEditable(isEditable);
+    console.log("✅ Editor.setEditable() called with:", isEditable);
+
+    // ✅ Force focus if becoming editable
+    if (isEditable && !editor.isEditable()) {
+      setTimeout(() => {
+        if (editor.isEditable()) {
+          console.log("✅ Editor is now editable and focused");
+        }
+      }, 100);
     }
   }, [editor, readOnly, userRole]);
 
@@ -243,6 +253,8 @@ export default function LexicalEditor({
       />
 
       <LexicalComposer initialConfig={editorConfig}>
+        <EditableStateController readOnly={readOnly} userRole={userRole} />
+
         {/* Collaboration Plugin */}
         {/* <CollaborationPlugin
           id={documentId}
@@ -295,7 +307,7 @@ export default function LexicalEditor({
           floatingAnchorElem={floatingAnchorElem}
           isSmallWidthViewport={isSmallWidthViewport}
           onRef={onRef}
-          readOnly={!canEdit} 
+          readOnly={!canEdit}
           onContentChange={onContentChange}
           hasInitialContent={!!initialContent}
         />
