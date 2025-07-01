@@ -1,10 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LexicalComposer } from "@lexical/react/LexicalComposer";
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
 import { CollaborationPlugin } from "@lexical/react/LexicalCollaborationPlugin";
-import type { Provider } from "@lexical/yjs";
 import * as Y from "yjs";
 
 import { HeadingNode, QuoteNode } from "@lexical/rich-text";
@@ -26,14 +25,64 @@ import { lexicalTheme } from "@/lib/lexical-theme";
 import type { UserProfile, ActiveUserProfile } from "@/lib/types/collaboration";
 import LexicalToolbarRich from "./LexicalToolbarRich";
 
+// Plugin to load persisted state after CollaborationPlugin initializes
+function StateLoaderPlugin({
+  yjsDoc,
+  documentId,
+}: {
+  yjsDoc: Y.Doc;
+  documentId: string;
+}) {
+  useEffect(() => {
+    if ((yjsDoc as any)._needsStateLoad && (yjsDoc as any)._pendingStateLoad) {
+      const loadState = async () => {
+        try {
+          await (yjsDoc as any)._pendingStateLoad();
+          delete (yjsDoc as any)._needsStateLoad;
+          delete (yjsDoc as any)._pendingStateLoad;
+        } catch (error) {
+          console.error(
+            `Error loading persisted state for ${documentId}:`,
+            error
+          );
+        }
+      };
+
+      setTimeout(loadState, 100);
+    }
+  }, [yjsDoc, documentId]);
+
+  return null;
+}
+
 interface LexicalEditorProps {
-  showToolbar?: boolean;
   className?: string;
+  showToolbar?: boolean;
   documentId?: string;
   readOnly?: boolean;
   initialContent?: any;
   onContentChange?: (editorState: any) => void;
   userRole?: "owner" | "editor" | "viewer";
+  // Updated to match the actual structure from editor page
+  currentUser?: {
+    id: string;
+    name: string;
+    email: string;
+    avatarUrl?: string;
+    clerkUserId: string;
+  };
+  collaborators?: Array<{
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      avatarUrl?: string;
+      clerkUserId: string;
+    };
+    role: string;
+    isOnline: boolean;
+  }>;
+  onlineUsers?: Set<string>;
 }
 
 function EditableStateController({
@@ -49,33 +98,13 @@ function EditableStateController({
     const isEditable =
       !readOnly && (userRole === "owner" || userRole === "editor");
 
-    console.log("🔍 EditableStateController - Updating editor state:", {
-      readOnly,
-      userRole,
-      isEditable,
-      currentEditable: editor.isEditable(),
-      needsUpdate: editor.isEditable() !== isEditable,
-      timestamp: new Date().toISOString(),
-    });
-
-    // ✅ Always set the editable state (even if it seems the same)
     editor.setEditable(isEditable);
-    console.log("✅ Editor.setEditable() called with:", isEditable);
-
-    // ✅ Force focus if becoming editable
-    if (isEditable && !editor.isEditable()) {
-      setTimeout(() => {
-        if (editor.isEditable()) {
-          console.log("✅ Editor is now editable and focused");
-        }
-      }, 100);
-    }
   }, [editor, readOnly, userRole]);
 
   return null;
 }
 
-const DEFAULT_EDITOR_STATE = JSON.stringify({
+export const DEFAULT_EDITOR_STATE = JSON.stringify({
   root: {
     children: [
       {
@@ -103,142 +132,192 @@ export default function LexicalEditor({
   initialContent = null,
   onContentChange,
   userRole = "viewer",
+  currentUser,
+  collaborators = [],
+  onlineUsers = new Set(),
 }: LexicalEditorProps) {
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => ({
-    name: "User " + Math.floor(Math.random() * 1000),
-    color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-  }));
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    if (currentUser) {
+      return {
+        name: currentUser.name,
+        color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+      };
+    }
+    return {
+      name: "User " + Math.floor(Math.random() * 1000),
+      color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
+    };
+  });
+
+  useEffect(() => {
+    if (currentUser) {
+      setUserProfile(prev => ({
+        ...prev,
+        name: currentUser.name,
+      }));
+    }
+  }, [currentUser]);
 
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [floatingAnchorElem, setFloatingAnchorElem] =
     useState<HTMLDivElement | null>(null);
-  const [yjsProvider, setYjsProvider] = useState<null | Provider>(null);
+  const [yjsProvider, setYjsProvider] = useState<any>(null);
+  const [yjsDoc, setYjsDoc] = useState<Y.Doc | null>(null);
+  const [providerReady, setProviderReady] = useState(false);
   const [connected, setConnected] = useState(false);
   const [activeUsers, setActiveUsers] = useState<ActiveUserProfile[]>([]);
   const [isSmallWidthViewport, setIsSmallWidthViewport] =
     useState<boolean>(false);
   const [isLinkEditMode, setIsLinkEditMode] = useState<boolean>(false);
-
-  const onRef = useCallback((_floatingAnchorElem: HTMLDivElement) => {
-    if (_floatingAnchorElem !== null) {
-      setFloatingAnchorElem(_floatingAnchorElem);
-    }
-  }, []);
-
-  const handleAwarenessUpdate = useCallback(() => {
-    const awareness = yjsProvider!.awareness!;
-    setActiveUsers(
-      Array.from(awareness.getStates().entries()).map(
-        ([userId, { color, name }]) => ({
-          color,
-          name,
-          userId,
-        })
-      )
-    );
-  }, [yjsProvider]);
+  const [websocketUrl, setWebsocketUrl] = useState<string>("");
 
   useEffect(() => {
-    if (yjsProvider == null) {
-      return;
-    }
+    if (!documentId) return;
 
-    yjsProvider.awareness.on("update", handleAwarenessUpdate);
-    return () => yjsProvider.awareness.off("update", handleAwarenessUpdate);
-  }, [yjsProvider, handleAwarenessUpdate]);
+    let isMounted = true;
 
-  useEffect(() => {
-    const updateViewPortWidth = () => {
-      const isNextSmallWidthViewport = window.matchMedia(
-        "(max-width: 1025px)"
-      ).matches;
+    const setupProvider = async () => {
+      try {
+        const provider = await createWebsocketProvider(documentId);
 
-      if (isNextSmallWidthViewport !== isSmallWidthViewport) {
-        setIsSmallWidthViewport(isNextSmallWidthViewport);
+        if (!isMounted) {
+          provider.destroy();
+          return;
+        }
+
+        if (!provider.doc) {
+          console.error("Provider created without a valid Y.Doc");
+          return;
+        }
+
+        setWebsocketUrl(process.env.NEXT_PUBLIC_WS_URL || "");
+
+        const handleStatus = (event: any) => {
+          const isConnected =
+            event.status === "connected" ||
+            ("connected" in event && event.connected === true);
+          setConnected(isConnected);
+        };
+
+        const handleConnectionError = (error: any) => {
+          console.error(`Connection error for ${documentId}:`, error);
+          setConnected(false);
+        };
+
+        provider.on("status", handleStatus);
+        provider.on("connection-error", handleConnectionError);
+
+        if (provider.awareness) {
+          const userInfo = {
+            id: currentUser?.id ?? Math.floor(Math.random() * 1000),
+            name: currentUser?.name ?? userProfile.name,
+            email: currentUser?.email ?? "",
+            avatarUrl: currentUser?.avatarUrl ?? "",
+            role: userRole,
+            canEdit:
+              !readOnly && (userRole === "owner" || userRole === "editor"),
+          };
+
+          provider.awareness.setLocalStateField("user", userInfo);
+        }
+
+        if (isMounted) {
+          setYjsProvider(provider);
+          setYjsDoc(provider.doc);
+          setProviderReady(true);
+        }
+      } catch (error) {
+        console.error(`Failed to setup provider for ${documentId}:`, error);
+        if (isMounted) {
+          setProviderReady(false);
+        }
       }
     };
 
-    updateViewPortWidth();
-    window.addEventListener("resize", updateViewPortWidth);
+    setupProvider();
 
     return () => {
-      window.removeEventListener("resize", updateViewPortWidth);
+      isMounted = false;
+
+      if (yjsProvider) {
+        yjsProvider.destroy();
+      }
+
+      setYjsProvider(null);
+      setYjsDoc(null);
+      setProviderReady(false);
     };
-  }, [isSmallWidthViewport]);
+  }, [documentId, currentUser, userProfile.name, userRole, readOnly]);
+
+  const createInitialEditorState = useCallback(() => {
+    if (!initialContent) {
+      return undefined;
+    }
+    try {
+      return JSON.stringify(initialContent);
+    } catch (error) {
+      console.error("Failed to serialize initial content:", error);
+      return undefined;
+    }
+  }, [initialContent]);
+
+  const isCollaborative = Boolean(documentId);
+
+  const editorConfig = useMemo(
+    () => ({
+      editorState: isCollaborative ? null : createInitialEditorState(),
+      namespace: "CoWrite Collaborative Editor",
+      nodes: [
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        CodeHighlightNode,
+        TableNode,
+        TableCellNode,
+        TableRowNode,
+        AutoLinkNode,
+        LinkNode,
+        HashtagNode,
+        OverflowNode,
+        HorizontalRuleNode,
+      ],
+      onError(error: Error) {
+        console.error("❌ Lexical Editor Error:", error);
+        throw error;
+      },
+      theme: lexicalTheme,
+      editable: !readOnly && (userRole === "owner" || userRole === "editor"),
+    }),
+    [createInitialEditorState, readOnly, userRole, isCollaborative]
+  );
+
+  const canEdit = !readOnly && (userRole === "owner" || userRole === "editor");
+
+  const handleEditorRef = useCallback((elem: HTMLDivElement) => {
+    setFloatingAnchorElem(elem);
+  }, []);
 
   const providerFactory = useCallback(
     (id: string, yjsDocMap: Map<string, Y.Doc>) => {
-      const provider = createWebsocketProvider(id, yjsDocMap);
-
-      provider.on("status", event => {
-        setConnected(
-          event.status === "connected" ||
-            ("connected" in event && event.connected === true)
-        );
-      });
-
-      setTimeout(() => setYjsProvider(provider), 0);
-      return provider;
-    },
-    []
-  );
-
-  //  Create initial editor state with proper defaults
-  const createInitialEditorState = () => {
-    // If we have initial content, try to use it
-    if (initialContent) {
-      try {
-        // If it's already a string, use it
-        if (typeof initialContent === "string") {
-          // Validate it's valid JSON
-          JSON.parse(initialContent);
-          return initialContent;
-        }
-        // If it's an object, stringify it
-        return JSON.stringify(initialContent);
-      } catch (error) {
-        console.warn(
-          "❌ Failed to parse initial content, using default:",
-          error
-        );
-        return DEFAULT_EDITOR_STATE;
+      if (!yjsProvider || !yjsDoc) {
+        console.error("Provider or doc not ready in providerFactory");
+        throw new Error("Provider or doc not ready");
       }
-    }
 
-    console.log("📄 No initial content provided, using default empty state");
-    return DEFAULT_EDITOR_STATE;
-  };
+      const existingDoc = yjsDocMap.get(id);
+      if (existingDoc && existingDoc !== yjsDoc) {
+        console.warn(
+          `Y.Doc conflict detected! Replacing existing doc for ${id}`
+        );
+      }
 
-  const editorConfig = {
-    editorState: createInitialEditorState(),
-    namespace: "CoWrite Collaborative Editor",
-    nodes: [
-      HeadingNode,
-      ListNode,
-      ListItemNode,
-      QuoteNode,
-      CodeNode,
-      CodeHighlightNode,
-      TableNode,
-      TableCellNode,
-      TableRowNode,
-      AutoLinkNode,
-      LinkNode,
-      HashtagNode,
-      OverflowNode,
-      HorizontalRuleNode,
-    ],
-    onError(error: Error) {
-      console.error("❌ Lexical Editor Error:", error);
-      throw error;
+      yjsDocMap.set(id, yjsDoc);
+      return yjsProvider;
     },
-    theme: lexicalTheme,
-    // ✅ Set initial editable state based on role
-    editable: !readOnly && (userRole === "owner" || userRole === "editor"),
-  };
-
-  // ✅ Calculate if user can actually edit
-  const canEdit = !readOnly && (userRole === "owner" || userRole === "editor");
+    [yjsProvider, yjsDoc]
+  );
 
   return (
     <div
@@ -246,33 +325,50 @@ export default function LexicalEditor({
       className={cn("relative", !canEdit && "opacity-90", className)}
     >
       <UserControlPanel
-        userProfile={userProfile}
-        onUserProfileChange={setUserProfile}
+        currentUser={
+          currentUser || {
+            id: "initial-user",
+            name: userProfile.name,
+            email: "unknown@example.com",
+            clerkUserId: "unknown",
+          }
+        }
         connected={connected}
-        activeUsers={activeUsers}
+        collaborators={collaborators}
+        onlineUsers={onlineUsers}
+        provider={yjsProvider}
+        yjsDoc={yjsDoc}
+        websocketUrl={websocketUrl}
       />
 
       <LexicalComposer initialConfig={editorConfig}>
         <EditableStateController readOnly={readOnly} userRole={userRole} />
 
-        {/* Collaboration Plugin */}
-        {/* <CollaborationPlugin
-          id={documentId}
-          providerFactory={providerFactory}
-          shouldBootstrap={false}
-          username={userProfile.name}
-          cursorColor={userProfile.color}
-          cursorsContainerRef={containerRef}
-        /> */}
+        {isCollaborative &&
+          providerReady &&
+          yjsProvider &&
+          yjsDoc &&
+          documentId && (
+            <>
+              <CollaborationPlugin
+                key={`collab-${documentId}`}
+                id={documentId}
+                providerFactory={providerFactory}
+                shouldBootstrap={false}
+                username={userProfile.name}
+                cursorColor={userProfile.color}
+                cursorsContainerRef={containerRef}
+              />
+              <StateLoaderPlugin yjsDoc={yjsDoc} documentId={documentId} />
+            </>
+          )}
 
-        {/* Toolbar - Only show when user can edit and showToolbar is true */}
         {showToolbar && canEdit && (
           <div className="surface-elevated mb-4 border-b border-slate-200/50 px-6 py-3 dark:border-slate-700/50">
             <LexicalToolbarRich />
           </div>
         )}
 
-        {/* Permission indicator for ALL non-editable states */}
         {!canEdit && (
           <div className="mb-4 flex items-center justify-center rounded-md bg-yellow-50 px-4 py-2 text-sm text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-200">
             <svg
@@ -302,14 +398,14 @@ export default function LexicalEditor({
           </div>
         )}
 
-        {/* Editor component */}
         <Editor
           floatingAnchorElem={floatingAnchorElem}
           isSmallWidthViewport={isSmallWidthViewport}
-          onRef={onRef}
+          onRef={handleEditorRef}
           readOnly={!canEdit}
           onContentChange={onContentChange}
           hasInitialContent={!!initialContent}
+          isCollaborative={isCollaborative}
         />
       </LexicalComposer>
     </div>

@@ -1,5 +1,4 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { requireSyncedUser } from "@/lib/user-sync";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
@@ -11,7 +10,22 @@ export default async function handler(
   }
 
   try {
-    const user = await requireSyncedUser(req);
+    let testUser = await prisma.user.findFirst({
+      where: { email: "test@example.com" },
+    });
+
+    if (!testUser) {
+      testUser = await prisma.user.create({
+        data: {
+          clerkId: "test-clerk-id",
+          email: "test@example.com",
+          firstName: "Test",
+          lastName: "User",
+          imageUrl: "",
+        },
+      });
+    }
+
     const { title } = req.body;
 
     const defaultContent = {
@@ -36,10 +50,10 @@ export default async function handler(
 
     const document = await prisma.document.create({
       data: {
-        title: title || "Untitled Document",
-        ownerId: user.id,
+        title: title || "Test Document for Collaboration",
+        ownerId: testUser.id,
         content: JSON.stringify(defaultContent),
-        isPublic: false,
+        isPublic: true,
         coverImage: null,
       },
       include: {
@@ -70,13 +84,15 @@ export default async function handler(
       },
     });
 
-    console.log("Document created:", document.id);
+    console.log("Test document created:", document.id);
     return res.status(201).json(document);
   } catch (error) {
-    console.error("Error creating document:", error);
+    console.error("Test document creation error:", error);
     return res.status(500).json({
       error:
-        error instanceof Error ? error.message : "Failed to create document",
+        error instanceof Error
+          ? error.message
+          : "Failed to create test document",
     });
   }
 }
