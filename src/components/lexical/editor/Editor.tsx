@@ -31,6 +31,7 @@ interface EditorContentProps {
   readOnly?: boolean;
   onContentChange?: (editorState: any) => void;
   hasInitialContent?: boolean;
+  isCollaborative?: boolean;
 }
 
 export default function Editor({
@@ -40,22 +41,19 @@ export default function Editor({
   readOnly = false,
   onContentChange,
   hasInitialContent = false,
+  isCollaborative = false,
 }: EditorContentProps) {
   const isEditable = useLexicalEditable();
 
-  // Internal state management for floating toolbar
   const [floatingAnchorElem, setFloatingAnchorElem] =
     useState<HTMLDivElement | null>(null);
   const [isSmallWidthViewport, setIsSmallWidthViewport] =
     useState<boolean>(false);
-
-  // Use external props if provided, otherwise use internal state
   const actualFloatingAnchorElem =
     externalFloatingAnchorElem ?? floatingAnchorElem;
   const actualIsSmallWidthViewport =
     externalIsSmallWidthViewport ?? isSmallWidthViewport;
 
-  // Handle viewport size changes
   useEffect(() => {
     const updateViewPortWidth = () => {
       const isNextSmallWidthViewport = window.matchMedia(
@@ -102,32 +100,22 @@ export default function Editor({
         ErrorBoundary={LexicalErrorBoundary}
       />
       {onContentChange && <OnChangePlugin onChange={onContentChange} />}
-      {/* Core Plugins */}
       <AutoFocusPlugin />
       <HashtagPlugin />
       <LinkPlugin />
       <ClickableLinkPlugin disabled={!isEditable} />
-      {/* List Plugins */}
       <ListPlugin />
       <CheckListPlugin />
-      {/* Table Plugins */}
       <TablePlugin hasCellMerge={true} hasCellBackgroundColor={true} />
-      {/* Utility Plugins */}
       <TabIndentationPlugin />
       <HorizontalRulePlugin />
-      {/* Markdown Support */}
       <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
-      {/* History Plugin for non-collaborative mode */}
-      <HistoryPlugin />
-      {/* Mock document content */}
+      {!isCollaborative && <HistoryPlugin />}
       {!hasInitialContent && <InitialContentPlugin />}
-      {/* Floating plugins - Only show when not readOnly */}
       {actualFloatingAnchorElem && !actualIsSmallWidthViewport && !readOnly && (
-        <>
-          <FloatingTextFormatToolbarPlugin
-            anchorElem={actualFloatingAnchorElem}
-          />
-        </>
+        <FloatingTextFormatToolbarPlugin
+          anchorElem={actualFloatingAnchorElem}
+        />
       )}
     </div>
   );

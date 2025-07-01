@@ -1,48 +1,184 @@
-import { Provider } from "@lexical/yjs";
 import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
 
 function getWebSocketURL(): string {
-  if (typeof window === "undefined") {
-    return "ws://localhost:1234";
+  return process.env.NEXT_PUBLIC_WS_URL!;
+}
+
+const persistedDocs = new Map<string, Y.Doc>();
+const initializingDocs = new Set<string>();
+const persistedProviders = new Map<string, any>();
+
+function getOrCreateYDoc(documentId: string): Y.Doc {
+  let doc = persistedDocs.get(documentId);
+  if (!doc) {
+    doc = new Y.Doc();
+    persistedDocs.set(documentId, doc);
   }
+  return doc;
+}
 
-  const hostname = window.location.hostname;
+async function loadPersistedState(doc: Y.Doc, documentId: string) {
+  try {
+    const response = await fetch(`/api/documents/${documentId}/yjs`);
 
-  if (hostname === "localhost" || hostname === "127.0.0.1") {
-    return process.env.NEXT_PUBLIC_WS_URL || "ws://192.168.1.123:10000";
-  } else {
-    return (
-      process.env.NEXT_PUBLIC_WS_URL ||
-      "wss://your-deployed-server.onrender.com"
-    );
+    if (response.ok) {
+      const yjsStateBuffer = await response.arrayBuffer();
+
+      if (yjsStateBuffer.byteLength > 0) {
+        const uint8Array = new Uint8Array(yjsStateBuffer);
+        Y.applyUpdate(doc, uint8Array);
+        initializingDocs.delete(documentId);
+      }
+    } else {
+      console.warn(
+        `Failed to load Yjs state for ${documentId}:`,
+        response.status
+      );
+    }
+  } catch (error) {
+    console.error(`Error loading Yjs state for ${documentId}:`, error);
   }
 }
 
-export function createWebsocketProvider(
-  id: string,
-  yjsDocMap: Map<string, Y.Doc>
-): Provider {
-  const doc = getDocFromMap(id, yjsDocMap);
+export async function createPersistedWebsocketProvider(documentId: string) {
   const wsUrl = getWebSocketURL();
 
-  console.log(`🔌 Connecting to WebSocket: ${wsUrl} for room: ${id}`);
-
-  // @ts-expect-error TODO: FIXME
-  return new WebsocketProvider(wsUrl, id, doc, {
-    connect: true, // Changed from false to true - this is crucial for cursors
-  });
-}
-
-function getDocFromMap(id: string, yjsDocMap: Map<string, Y.Doc>): Y.Doc {
-  let doc = yjsDocMap.get(id);
-
-  if (doc === undefined) {
-    doc = new Y.Doc();
-    yjsDocMap.set(id, doc);
-  } else {
-    doc.load();
+  if (!wsUrl) {
+    throw new Error(
+      "WebSocket URL is not configured. Please set NEXT_PUBLIC_WS_URL environment variable."
+    );
   }
 
-  return doc;
+  const existingProvider = persistedProviders.get(documentId);
+  if (existingProvider) {
+    return existingProvider;
+  }
+
+  if (initializingDocs.has(documentId)) {
+    while (initializingDocs.has(documentId)) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    const completedProvider = persistedProviders.get(documentId);
+    if (completedProvider) {
+      return completedProvider;
+    }
+  }
+
+  const doc = getOrCreateYDoc(documentId);
+
+  initializingDocs.add(documentId);
+
+  (doc as any)._pendingStateLoad = () => loadPersistedState(doc, documentId);
+  (doc as any)._needsStateLoad = true;
+
+  if (!doc) {
+    throw new Error(`Failed to create or retrieve Y.Doc for ${documentId}`);
+  }
+
+  const provider = new WebsocketProvider(wsUrl, documentId, doc, {
+    connect: true,
+  });
+
+  persistedProviders.set(documentId, provider);
+
+  let saveTimeout: NodeJS.Timeout | null = null;
+  const saveState = async () => {
+    try {
+      const state = Y.encodeStateAsUpdate(doc);
+
+      const response = await fetch(`/api/documents/${documentId}/yjs`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/octet-stream",
+          "Content-Length": state.length.toString(),
+        },
+        body: state,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(
+          `Failed to persist Yjs state for ${documentId}:`,
+          response.status,
+          errorText
+        );
+      }
+    } catch (error) {
+      console.error(`Error persisting Yjs state for ${documentId}:`, error);
+    }
+  };
+
+  doc.on("update", (update: Uint8Array, origin: any) => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    saveTimeout = setTimeout(() => {
+      saveState();
+    }, 2000);
+  });
+
+  const handleBeforeUnload = () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+    try {
+      const state = Y.encodeStateAsUpdate(doc);
+      const blob = new Blob([state], {
+        type: "application/octet-stream",
+      });
+
+      navigator.sendBeacon(`/api/documents/${documentId}/yjs`, blob);
+    } catch (error) {
+      console.error("Error saving on beforeunload:", error);
+    }
+  };
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("beforeunload", handleBeforeUnload);
+  }
+
+  if (!provider.doc) {
+    throw new Error("Failed to create provider with valid Y.Doc");
+  }
+
+  provider.on("connection-error", (error: any) => {
+    console.error(`Yjs connection error for ${documentId}:`, error);
+  });
+
+  const originalDestroy = provider.destroy.bind(provider);
+  provider.destroy = () => {
+    if (saveTimeout) {
+      clearTimeout(saveTimeout);
+    }
+
+    if (typeof window !== "undefined") {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    }
+
+    saveState();
+
+    persistedProviders.delete(documentId);
+    initializingDocs.delete(documentId);
+
+    originalDestroy();
+  };
+
+  return provider;
+}
+
+export function clearPersistedDoc(documentId: string) {
+  const provider = persistedProviders.get(documentId);
+  if (provider) {
+    provider.destroy();
+  }
+
+  persistedDocs.delete(documentId);
+  persistedProviders.delete(documentId);
+  initializingDocs.delete(documentId);
+}
+
+export function createWebsocketProvider(documentId: string) {
+  return createPersistedWebsocketProvider(documentId);
 }

@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/router";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
-import LexicalEditor from "@/components/lexical/editor/LexicalEditor";
+import LexicalEditor, {
+  DEFAULT_EDITOR_STATE,
+} from "@/components/lexical/editor/LexicalEditor";
 import EditorHeader, {
   type DocumentMode,
   type UserRole,
@@ -14,12 +16,8 @@ import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 import CollaboratorPanel from "@/components/documents/CollaboratorPanel";
 import { useUser } from "@clerk/nextjs";
-import { useAutoSave } from "@/hooks/useAutoSave";
 
-import type {
-  DocumentWithDetails,
-  CollaboratorWithUser,
-} from "@/lib/types/api";
+import type { CollaboratorWithUser } from "@/lib/types/api";
 import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
 
 interface EditorDocument {
@@ -92,11 +90,14 @@ export default function DocumentEditor() {
   const lastSavedContentRef = useRef<string>("");
   const isInitialLoadRef = useRef(true);
 
+  // Online users tracking
+  const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+
   //  Transform API collaborators to EditorHeader Collaborator format
   const transformCollaboratorsForHeader = useCallback(
     (apiCollaborators: ApiCollaborator[]): Collaborator[] => {
       return apiCollaborators.map(collab => {
-        // ✅ Ensure role is properly lowercased
+        // Ensure role is properly lowercased
         const role = collab.role.toLowerCase() as "owner" | "editor" | "viewer";
 
         return {
@@ -106,9 +107,8 @@ export default function DocumentEditor() {
             collab.user.email,
           email: collab.user.email,
           avatar: collab.user.imageUrl,
-          status: "offline" as const, // TODO: Implement real-time presence
-          role, // ✅ Use properly typed role
-          // ✅ Add optional cursor property (can be undefined)
+          status: "offline" as const,
+          role,
           cursor: undefined,
         };
       });
@@ -116,157 +116,56 @@ export default function DocumentEditor() {
     []
   );
 
-  const getUserRole = useCallback((): UserRole => {
+  // Memoize userRole calculation to prevent recalculation
+  const userRole = useMemo(() => {
     if (!document || !databaseUser) {
-      console.log("🔍 getUserRole: Missing requirements", {
-        hasDocument: !!document,
-        hasDatabaseUser: !!databaseUser,
-      });
       return "viewer";
     }
 
-    console.log("🔍 getUserRole Debug:", {
-      documentOwnerId: document.ownerId,
-      databaseUserId: databaseUser.id,
-      clerkUserId: clerkUser?.id,
-      isOwnerByDocumentId: document.ownerId === databaseUser.id,
-      collaboratorsCount: collaborators.length,
-      timestamp: new Date().toISOString(),
-    });
-
-    // ✅ Check if user is the document owner
     if (document.ownerId === databaseUser.id) {
-      console.log("✅ User is document owner");
       return "owner";
     }
 
-    if (collaborators && collaborators.length > 0) {
-      console.log(
-        "🔍 Checking collaborators:",
-        collaborators.map(c => ({
-          id: c.id,
-          userId: c.userId,
-          role: c.role,
-          email: c.user?.email,
-          matchesUserId: c.userId === databaseUser.id,
-        }))
-      );
+    const userCollaboration = collaborators.find(
+      collab => collab.userId === databaseUser.id
+    );
 
-      // ✅ Find collaboration using database user ID
-      const userCollaboration = collaborators.find(
-        collab => collab.userId === databaseUser.id
-      );
-
-      console.log("🔍 User collaboration found:", userCollaboration);
-
-      if (userCollaboration) {
-        const role = userCollaboration.role;
-        console.log("✅ User collaboration role:", role);
-
-        switch (role) {
-          case "OWNER":
-            return "owner";
-          case "EDITOR":
-            return "editor";
-          case "VIEWER":
-            return "viewer";
-          default:
-            console.log("⚠️ Unknown role:", role);
-            return "viewer";
-        }
+    if (userCollaboration) {
+      const role = userCollaboration.role;
+      switch (role) {
+        case "OWNER":
+          return "owner";
+        case "EDITOR":
+          return "editor";
+        case "VIEWER":
+          return "viewer";
+        default:
+          return "viewer";
       }
     }
 
     if (document.isPublic) {
-      console.log("📖 Document is public, user is viewer");
       return "viewer";
     }
 
-    console.log("❌ No role found, defaulting to viewer");
     return "viewer";
-  }, [document, databaseUser, clerkUser?.id, collaborators]);
-
-  // Calculate user role dynamically
-  const userRole = getUserRole();
+  }, [document, databaseUser, collaborators]); // ✅ Include all referenced values
 
   useEffect(() => {
     if (!isLoaded || !clerkUser) return;
 
     const fetchDatabaseUser = async () => {
       try {
-        console.log(
-          "🔍 Fetching database user (webhook should have created it):",
-          {
-            clerkUserId: clerkUser.id,
-            email: clerkUser.primaryEmailAddress?.emailAddress,
-          }
-        );
-
-        // ✅ Primary: Try to get user (should exist via webhook)
         const response = await fetch("/api/users/me");
 
         if (response.ok) {
           const dbUser = await response.json();
           setDatabaseUser(dbUser);
-          console.log(
-            "✅ Database user found (created by webhook):",
-            dbUser.id
-          );
-          return;
-        }
-
-        // ❌ Fallback: User not found (webhook failed/delayed)
-        if (response.status === 404) {
-          console.warn(
-            "⚠️ Database user not found - webhook may have failed or is delayed"
-          );
-          console.log(
-            "🔄 Creating user as fallback (webhook should have done this)..."
-          );
-
-          // ✅ Retry after a short delay (webhook might be processing)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-
-          const retryResponse = await fetch("/api/users/me");
-          if (retryResponse.ok) {
-            const dbUser = await retryResponse.json();
-            setDatabaseUser(dbUser);
-            console.log(
-              "✅ Database user found on retry (webhook completed):",
-              dbUser.id
-            );
-            return;
-          }
-
-          // ✅ Last resort: Create user manually
-          const createResponse = await fetch("/api/users", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              clerkId: clerkUser.id,
-              email: clerkUser.primaryEmailAddress?.emailAddress || "",
-              firstName: clerkUser.firstName || "",
-              lastName: clerkUser.lastName || "",
-              imageUrl: clerkUser.imageUrl || "",
-            }),
-          });
-
-          if (createResponse.ok) {
-            const newUser = await createResponse.json();
-            setDatabaseUser(newUser);
-            console.warn(
-              "⚠️ Database user created manually (webhook backup):",
-              newUser.id
-            );
-          } else {
-            console.error(
-              "❌ Manual user creation failed:",
-              await createResponse.text()
-            );
-          }
+        } else {
+          console.error("Failed to sync user to database");
         }
       } catch (error) {
-        console.error("❌ Error in user fetch:", error);
+        console.error("Error syncing user:", error);
       }
     };
 
@@ -311,7 +210,6 @@ export default function DocumentEditor() {
         }
 
         const docData = await response.json();
-        console.log("Loaded document:", docData);
 
         const transformedDoc: EditorDocument = {
           id: docData.id,
@@ -341,19 +239,17 @@ export default function DocumentEditor() {
         if (commentsResponse.ok) {
           const commentsData = await commentsResponse.json();
           setComments(commentsData);
-          console.log("✅ Loaded comments:", commentsData.length);
         } else {
-          console.warn("❌ Failed to load comments:", commentsResponse.status);
+          console.warn("Failed to load comments:", commentsResponse.status);
           setComments([]);
         }
 
         if (collaboratorsResponse.ok) {
           const collaboratorsData = await collaboratorsResponse.json();
           setCollaborators(collaboratorsData);
-          console.log("✅ Loaded collaborators:", collaboratorsData.length);
         } else {
           console.warn(
-            "❌ Failed to load collaborators:",
+            "Failed to load collaborators:",
             collaboratorsResponse.status
           );
           setCollaborators([]);
@@ -361,7 +257,7 @@ export default function DocumentEditor() {
 
         setAiSuggestions(aiData);
       } catch (err) {
-        console.error("❌ Error fetching document:", err);
+        console.error("Error fetching document:", err);
         setError("Failed to load document data");
       } finally {
         setLoading(false);
@@ -370,40 +266,6 @@ export default function DocumentEditor() {
 
     fetchData();
   }, [id, isLoaded, clerkUser, databaseUser]);
-
-  // Set editing mode based on user role
-  useEffect(() => {
-    if (document) {
-      if (userRole === "owner" || userRole === "editor") {
-        setMode("editing");
-      } else {
-        setMode("viewing");
-      }
-    }
-  }, [document, userRole]);
-
-  // Add this effect in [id].tsx to ensure state updates
-  useEffect(() => {
-    console.log("🔄 User role or collaborators changed:", {
-      userRole,
-      collaboratorsCount: collaborators.length,
-      mode,
-      timestamp: new Date().toISOString(),
-    });
-
-    // Update mode based on role changes
-    if (userRole === "owner" || userRole === "editor") {
-      if (mode !== "editing") {
-        console.log("🔄 Switching to editing mode");
-        setMode("editing");
-      }
-    } else {
-      if (mode !== "viewing") {
-        console.log("🔄 Switching to viewing mode");
-        setMode("viewing");
-      }
-    }
-  }, [userRole, collaborators, mode]);
 
   // Collaborator management functions
   const handleAddCollaborator = async (
@@ -433,9 +295,8 @@ export default function DocumentEditor() {
 
       const newCollaborator = await response.json();
       setCollaborators(prev => [...prev, newCollaborator]);
-      console.log("✅ Collaborator added:", newCollaborator);
     } catch (error) {
-      console.error("❌ Failed to add collaborator:", error);
+      console.error("Failed to add collaborator:", error);
       throw error;
     }
   };
@@ -456,9 +317,8 @@ export default function DocumentEditor() {
       }
 
       setCollaborators(prev => prev.filter(c => c.id !== collaboratorId));
-      console.log("✅ Collaborator removed:", collaboratorId);
     } catch (error) {
-      console.error("❌ Failed to remove collaborator:", error);
+      console.error("Failed to remove collaborator:", error);
       throw error;
     }
   };
@@ -468,13 +328,6 @@ export default function DocumentEditor() {
     role: "EDITOR" | "VIEWER"
   ) => {
     if (!document) return;
-
-    console.log("🔄 Starting role change:", {
-      collaboratorId,
-      newRole: role,
-      currentUserRole: userRole,
-      documentId: document.id,
-    });
 
     try {
       const response = await fetch(
@@ -495,65 +348,18 @@ export default function DocumentEditor() {
 
       const updatedCollaborator = await response.json();
 
-      // ✅ Update collaborators state with proper typing
       setCollaborators(prev => {
-        const updated = prev.map(c =>
+        return prev.map(c =>
           c.id === collaboratorId
             ? { ...c, role: role as "OWNER" | "EDITOR" | "VIEWER" }
             : c
         );
-
-        console.log("✅ Collaborators updated:", {
-          collaboratorId,
-          newRole: role,
-          updatedCount: updated.length,
-        });
-
-        return updated;
       });
-
-      // ✅ Force a small delay to ensure state updates propagate
-      setTimeout(() => {
-        console.log("🔄 Role change completed, user role will be re-evaluated");
-      }, 100);
-
-      console.log("✅ Role change successful:", updatedCollaborator);
     } catch (error) {
-      console.error("❌ Failed to change role:", error);
+      console.error("Failed to change role:", error);
       throw error;
     }
   };
-
-  // Auto-save hook
-  const { save: autoSave } = useAutoSave({
-    saveFunction: async (data: { content?: string }) => {
-      if (!document) return;
-
-      console.log("💾 Auto-save triggered");
-
-      const response = await fetch(`/api/documents/${document.id}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(data),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Save failed: ${response.status} - ${errorText}`);
-      }
-
-      console.log("✅ Content auto-saved");
-
-      if (data.content) {
-        lastSavedContentRef.current = data.content;
-      }
-    },
-    debounceMs: 2000,
-    intervalMs: 30000,
-    enabled: mode === "editing",
-  });
 
   // Handle title change
   const handleTitleChange = async (newTitle: string): Promise<void> => {
@@ -561,8 +367,6 @@ export default function DocumentEditor() {
 
     try {
       setDocument(prev => (prev ? { ...prev, title: newTitle } : null));
-
-      console.log("💾 Saving title:", newTitle);
 
       const response = await fetch(`/api/documents/${document.id}`, {
         method: "PUT",
@@ -575,10 +379,8 @@ export default function DocumentEditor() {
       if (!response.ok) {
         throw new Error(`Failed to save title: ${response.status}`);
       }
-
-      console.log("✅ Title saved");
     } catch (err) {
-      console.error("❌ Failed to save title:", err);
+      console.error("Failed to save title:", err);
       if (document) {
         setDocument(prev => (prev ? { ...prev, title: document.title } : null));
       }
@@ -588,13 +390,10 @@ export default function DocumentEditor() {
 
   // Handle mode change
   const handleModeChange = (newMode: DocumentMode) => {
-    // ✅ Only allow mode changes if user has permission
     if (newMode === "editing" && userRole === "viewer") {
-      console.log("❌ User doesn't have edit permissions");
       return;
     }
     setMode(newMode);
-    console.log(`📱 Mode changed to: ${newMode}`);
   };
 
   // Handle content change
@@ -605,6 +404,7 @@ export default function DocumentEditor() {
       try {
         const contentString = JSON.stringify(editorState);
 
+        // Skip if this is the initial load and content hasn't changed
         if (
           isInitialLoadRef.current &&
           contentString === lastSavedContentRef.current
@@ -619,21 +419,20 @@ export default function DocumentEditor() {
 
         isInitialLoadRef.current = false;
 
+        // Update local state for UI purposes only
+        // Yjs handles all persistence
         setDocument(prev =>
           prev ? { ...prev, content: contentString } : null
         );
-
-        autoSave({ content: contentString });
       } catch (err) {
-        console.error("❌ Failed to process content change:", err);
+        console.error("Failed to process content change:", err);
       }
     },
-    [document, autoSave]
+    [document]
   );
 
   const handleAddComment = (newCommentData: ApiComment) => {
     setComments(prev => [newCommentData, ...prev]);
-    console.log("✅ Comment added to state:", newCommentData);
   };
 
   const handleResolveComment = (commentId: string) => {
@@ -642,13 +441,40 @@ export default function DocumentEditor() {
         comment.id === commentId ? { ...comment, resolved: true } : comment
       )
     );
-    console.log("✅ Comment resolved in state:", commentId);
   };
+
+  const currentUserForLexical = useMemo(() => {
+    if (!databaseUser) return undefined;
+    return {
+      id: databaseUser.id,
+      name:
+        `${databaseUser.firstName} ${databaseUser.lastName}`.trim() ||
+        databaseUser.email,
+      email: databaseUser.email,
+      avatarUrl: databaseUser.imageUrl,
+      clerkUserId: databaseUser.clerkId,
+    };
+  }, [databaseUser]);
+
+  const collaboratorsForLexical = useMemo(() => {
+    return collaborators.map(collab => ({
+      user: {
+        id: String(collab.user?.id ?? collab.userId ?? ""),
+        name:
+          `${collab.user.firstName} ${collab.user.lastName}`.trim() ||
+          collab.user.email,
+        email: collab.user.email,
+        avatarUrl: collab.user.imageUrl,
+        clerkUserId: String(collab.user.id),
+      },
+      role: collab.role.toLowerCase(),
+      isOnline: false,
+    }));
+  }, [collaborators]);
 
   // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
 
-  // Loading state
   if (!isLoaded || !clerkUser || !databaseUser || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -679,39 +505,6 @@ export default function DocumentEditor() {
       </SidebarProvider>
     );
   }
-
-  // Add this debug component in [id].tsx (development only)
-  const DebugPanel = () => {
-    if (process.env.NODE_ENV !== "development") return null;
-
-    return (
-      <div className="fixed bottom-4 left-4 z-50 max-w-sm rounded-lg bg-black/80 p-3 text-xs text-white">
-        <div className="mb-2 font-semibold">Debug Info:</div>
-        <div>
-          User Role: <span className="text-green-300">{userRole}</span>
-        </div>
-        <div>
-          Mode: <span className="text-blue-300">{mode}</span>
-        </div>
-        <div>
-          Collaborators:{" "}
-          <span className="text-yellow-300">{collaborators.length}</span>
-        </div>
-        <div>
-          Database User:{" "}
-          <span className="text-purple-300">
-            {databaseUser?.id ? "Loaded" : "Loading"}
-          </span>
-        </div>
-        <div>
-          Can Edit:{" "}
-          <span className="text-red-300">
-            {userRole === "owner" || userRole === "editor" ? "Yes" : "No"}
-          </span>
-        </div>
-      </div>
-    );
-  };
 
   const isReadOnly = userRole === "viewer";
 
@@ -751,9 +544,17 @@ export default function DocumentEditor() {
                     className="min-h-full"
                     documentId={document.id}
                     readOnly={isReadOnly}
-                    initialContent={document.content}
+                    initialContent={
+                      document.content &&
+                      document.content !== JSON.stringify(DEFAULT_EDITOR_STATE)
+                        ? JSON.parse(document.content)
+                        : null
+                    }
                     onContentChange={handleContentChange}
                     userRole={userRole}
+                    currentUser={currentUserForLexical}
+                    collaborators={collaboratorsForLexical}
+                    onlineUsers={onlineUsers}
                   />
                 </div>
               </div>
@@ -874,8 +675,6 @@ export default function DocumentEditor() {
               </div>
             )}
           </div>
-
-          <DebugPanel />
         </div>
       </SidebarInset>
     </SidebarProvider>
