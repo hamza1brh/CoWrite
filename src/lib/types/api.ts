@@ -15,7 +15,7 @@ export interface User {
 export interface Document {
   id: string;
   title: string;
-  content: any; // JSON from Prisma
+  content: any; 
   coverImage: string | null;
   isPublic: boolean;
   createdAt: string;
@@ -56,9 +56,9 @@ export interface DocumentData {
   collaboratorIds: string[];
 }
 
-// Collaborator UI Type
+
 export interface Collaborator {
-  id: number; //  UI mock data
+  id: number; 
   name: string;
   avatar: string;
   status: "online" | "away" | "offline";
@@ -66,17 +66,14 @@ export interface Collaborator {
   lastActive?: string;
 }
 
-// ✅ Fix AISuggestion to match mock data structure
 export interface AISuggestion {
-  id: number; //  mock data
+  id: number;
   type: "grammar" | "style" | "content";
   title: string;
   description: string;
-  // Remove suggestion field since mock data doesn't have it
   confidence: number;
 }
 
-// ✅ Mock Comment Type
 export interface MockComment {
   id: number;
   content: string;
@@ -85,9 +82,9 @@ export interface MockComment {
   resolved: boolean;
 }
 
-// API Response types (with relations)
 export interface DocumentWithOwner extends Document {
   owner: User;
+  collaborators: CollaboratorWithUser[];
   _count: {
     comments: number;
   };

@@ -92,16 +92,19 @@ export default function DocumentEditor() {
 
   // Online users tracking
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
+  const [yjsProvider, setYjsProvider] = useState<any>(null);
+  const [connected, setConnected] = useState<boolean>(false);
 
-  //  Transform API collaborators to EditorHeader Collaborator format
+  
   const transformCollaboratorsForHeader = useCallback(
     (apiCollaborators: ApiCollaborator[]): Collaborator[] => {
       return apiCollaborators.map(collab => {
-        // Ensure role is properly lowercased
+        
         const role = collab.role.toLowerCase() as "owner" | "editor" | "viewer";
 
         return {
           id: collab.id,
+          userId: String(collab.user?.id ?? collab.userId ?? ""), 
           name:
             `${collab.user.firstName} ${collab.user.lastName}`.trim() ||
             collab.user.email,
@@ -116,7 +119,19 @@ export default function DocumentEditor() {
     []
   );
 
-  // Memoize userRole calculation to prevent recalculation
+  
+  const handleProviderReady = useCallback((provider: any) => {
+    console.log("📡 Editor received provider:", !!provider);
+    setYjsProvider(provider);
+  }, []);
+
+  
+  const handleConnectionStatusChange = useCallback((isConnected: boolean) => {
+    console.log("📡 Editor connection status changed:", isConnected);
+    setConnected(isConnected);
+  }, []);
+
+  
   const userRole = useMemo(() => {
     if (!document || !databaseUser) {
       return "viewer";
@@ -149,7 +164,15 @@ export default function DocumentEditor() {
     }
 
     return "viewer";
-  }, [document, databaseUser, collaborators]); // ✅ Include all referenced values
+  }, [document, databaseUser, collaborators]); 
+
+  useEffect(() => {
+    if (userRole === "owner" || userRole === "editor") {
+      setMode("editing");
+    } else {
+      setMode("viewing");
+    }
+  }, [userRole]);
 
   useEffect(() => {
     if (!isLoaded || !clerkUser) return;
@@ -172,14 +195,14 @@ export default function DocumentEditor() {
     fetchDatabaseUser();
   }, [isLoaded, clerkUser]);
 
-  // Redirect if not authenticated
+  
   useEffect(() => {
     if (isLoaded && !clerkUser) {
       router.replace("/welcome");
     }
   }, [isLoaded, clerkUser, router]);
 
-  // Fetch document
+  
   useEffect(() => {
     if (
       !id ||
@@ -267,7 +290,7 @@ export default function DocumentEditor() {
     fetchData();
   }, [id, isLoaded, clerkUser, databaseUser]);
 
-  // Collaborator management functions
+  
   const handleAddCollaborator = async (
     email: string,
     role: "EDITOR" | "VIEWER"
@@ -361,7 +384,7 @@ export default function DocumentEditor() {
     }
   };
 
-  // Handle title change
+  
   const handleTitleChange = async (newTitle: string): Promise<void> => {
     if (!document) return;
 
@@ -388,7 +411,7 @@ export default function DocumentEditor() {
     }
   };
 
-  // Handle mode change
+  
   const handleModeChange = (newMode: DocumentMode) => {
     if (newMode === "editing" && userRole === "viewer") {
       return;
@@ -396,7 +419,7 @@ export default function DocumentEditor() {
     setMode(newMode);
   };
 
-  // Handle content change
+  
   const handleContentChange = useCallback(
     (editorState: any) => {
       if (!document) return;
@@ -506,7 +529,7 @@ export default function DocumentEditor() {
     );
   }
 
-  const isReadOnly = userRole === "viewer";
+  const isReadOnly = userRole === "viewer" || mode === "viewing";
 
   return (
     <SidebarProvider>
@@ -533,6 +556,7 @@ export default function DocumentEditor() {
             onToggleCollaborators={() =>
               setShowCollaborators(!showCollaborators)
             }
+            provider={yjsProvider}
           />
 
           <div className="flex flex-1 overflow-hidden">
@@ -555,6 +579,8 @@ export default function DocumentEditor() {
                     currentUser={currentUserForLexical}
                     collaborators={collaboratorsForLexical}
                     onlineUsers={onlineUsers}
+                    onProviderReady={handleProviderReady}
+                    onConnectionStatusChange={handleConnectionStatusChange}
                   />
                 </div>
               </div>
@@ -571,6 +597,7 @@ export default function DocumentEditor() {
                       collaborators
                     )}
                     currentUserRole={userRole}
+                    provider={yjsProvider}
                     onAddCollaborator={handleAddCollaborator}
                     onRemoveCollaborator={handleRemoveCollaborator}
                     onChangeRole={handleChangeRole}
@@ -634,6 +661,7 @@ export default function DocumentEditor() {
                   onClose={() => setShowCollaborators(false)}
                   collaborators={transformCollaboratorsForHeader(collaborators)}
                   currentUserRole={userRole}
+                  provider={yjsProvider}
                   onAddCollaborator={handleAddCollaborator}
                   onRemoveCollaborator={handleRemoveCollaborator}
                   onChangeRole={handleChangeRole}

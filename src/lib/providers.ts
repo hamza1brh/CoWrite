@@ -2,7 +2,22 @@ import { WebsocketProvider } from "y-websocket";
 import * as Y from "yjs";
 
 function getWebSocketURL(): string {
-  return process.env.NEXT_PUBLIC_WS_URL!;
+  const wsUrl = process.env.NEXT_PUBLIC_WS_URL;
+
+  if (
+    typeof window !== "undefined" &&
+    window.location.protocol === "https:" &&
+    wsUrl?.startsWith("ws:")
+  ) {
+    console.error(
+      "Cannot use insecure WebSocket (ws://) from secure page (https://). Please configure WSS."
+    );
+    throw new Error(
+      "WebSocket SSL configuration required. Please set up wss:// endpoint."
+    );
+  }
+
+  return wsUrl!;
 }
 
 const persistedDocs = new Map<string, Y.Doc>();

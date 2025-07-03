@@ -19,24 +19,21 @@ import { AISuggestions } from "@/components/dashboard/AISuggestions";
 
 // Types
 import { DocumentWithOwner, DocumentCardData } from "@/lib/types/api";
+import { extractTextFromLexicalJSON } from "@/lib/utils";
 
 function transformDocumentForCard(doc: DocumentWithOwner): DocumentCardData {
   return {
     id: doc.id,
     title: doc.title,
-    preview: doc.content
-      ? typeof doc.content === "string"
-        ? doc.content.substring(0, 100) + "..."
-        : "Document content..."
-      : "No content yet...",
+    preview: extractTextFromLexicalJSON(doc.content),
     lastModified: new Date(doc.updatedAt).toLocaleDateString(),
     owner: {
       firstName: doc.owner.firstName,
       lastName: doc.owner.lastName,
       imageUrl: doc.owner.imageUrl,
     },
-    collaborators: [], // Will be populated when we implement collaborators
-    isStarred: false, // Will be implemented later
+    collaborators: doc.collaborators || [],
+    isStarred: false,
     comments: doc._count.comments,
   };
 }
@@ -57,7 +54,7 @@ export default function Dashboard() {
     }
   }, [isLoaded, user, router]);
 
-  // Fetch documents from API
+  
   useEffect(() => {
     if (!isLoaded || !user) return;
 
@@ -76,6 +73,7 @@ export default function Dashboard() {
           const transformedDocs = apiDocs.map(transformDocumentForCard);
           console.log("Transformed documents:", transformedDocs);
           setDocuments(transformedDocs);
+          console.log("document preview: ", transformedDocs[0].preview);
         } else {
           const errorText = await response.text();
           console.error(
@@ -94,7 +92,7 @@ export default function Dashboard() {
     fetchDocuments();
   }, [isLoaded, user]);
 
-  // Create new document
+  
   const handleCreateDocument = async () => {
     setCreating(true);
     try {
@@ -108,14 +106,14 @@ export default function Dashboard() {
           title: "Untitled Document",
         }),
       });
-      console.log("wa33333333");
-      console.log("Response status:", response.status);
+ 
+      console.log("creating new document , Response status:", response.status);
       console.log("Response ok:", response.ok);
 
       if (response.ok) {
         const newDoc: DocumentWithOwner = await response.json();
         console.log("Created document:", newDoc);
-        // Redirect to the new document editor
+        
         router.push(`/editor/${newDoc.id}`);
       } else {
         const errorData = await response.json();
@@ -128,7 +126,7 @@ export default function Dashboard() {
     }
   };
 
-  // Show loading while checking auth or redirecting
+  
   if (!isLoaded || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
@@ -137,7 +135,7 @@ export default function Dashboard() {
     );
   }
 
-  // Filter documents based on search query
+  
   const filteredDocuments = documents.filter(doc =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -157,7 +155,7 @@ export default function Dashboard() {
     visible: { opacity: 1, y: 0 },
   };
 
-  // Show loading state for documents
+  
   if (loading) {
     return (
       <SidebarProvider>
