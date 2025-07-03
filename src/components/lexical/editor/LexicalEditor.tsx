@@ -63,7 +63,6 @@ interface LexicalEditorProps {
   initialContent?: any;
   onContentChange?: (editorState: any) => void;
   userRole?: "owner" | "editor" | "viewer";
-  // Updated to match the actual structure from editor page
   currentUser?: {
     id: string;
     name: string;
@@ -83,6 +82,8 @@ interface LexicalEditorProps {
     isOnline: boolean;
   }>;
   onlineUsers?: Set<string>;
+  onProviderReady?: (provider: any) => void;
+  onConnectionStatusChange?: (connected: boolean) => void;
 }
 
 function EditableStateController({
@@ -135,16 +136,12 @@ export default function LexicalEditor({
   currentUser,
   collaborators = [],
   onlineUsers = new Set(),
+  onProviderReady,
+  onConnectionStatusChange,
 }: LexicalEditorProps) {
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    if (currentUser) {
-      return {
-        name: currentUser.name,
-        color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
-      };
-    }
     return {
-      name: "User " + Math.floor(Math.random() * 1000),
+      name: currentUser?.name || "Loading...",
       color: `#${Math.floor(Math.random() * 16777215).toString(16)}`,
     };
   });
@@ -197,34 +194,23 @@ export default function LexicalEditor({
             event.status === "connected" ||
             ("connected" in event && event.connected === true);
           setConnected(isConnected);
+          onConnectionStatusChange?.(isConnected);
         };
 
         const handleConnectionError = (error: any) => {
           console.error(`Connection error for ${documentId}:`, error);
           setConnected(false);
+          onConnectionStatusChange?.(false);
         };
 
         provider.on("status", handleStatus);
         provider.on("connection-error", handleConnectionError);
 
-        if (provider.awareness) {
-          const userInfo = {
-            id: currentUser?.id ?? Math.floor(Math.random() * 1000),
-            name: currentUser?.name ?? userProfile.name,
-            email: currentUser?.email ?? "",
-            avatarUrl: currentUser?.avatarUrl ?? "",
-            role: userRole,
-            canEdit:
-              !readOnly && (userRole === "owner" || userRole === "editor"),
-          };
-
-          provider.awareness.setLocalStateField("user", userInfo);
-        }
-
         if (isMounted) {
           setYjsProvider(provider);
           setYjsDoc(provider.doc);
           setProviderReady(true);
+          onProviderReady?.(provider);
         }
       } catch (error) {
         console.error(`Failed to setup provider for ${documentId}:`, error);
@@ -238,16 +224,55 @@ export default function LexicalEditor({
 
     return () => {
       isMounted = false;
-
-      if (yjsProvider) {
-        yjsProvider.destroy();
-      }
-
       setYjsProvider(null);
       setYjsDoc(null);
       setProviderReady(false);
     };
-  }, [documentId, currentUser, userProfile.name, userRole, readOnly]);
+  }, [documentId, onProviderReady]);
+
+  useEffect(() => {
+    if (!yjsProvider?.awareness || !currentUser || !providerReady) {
+      return;
+    }
+
+    let hasEnhanced = false;
+
+    const enhanceAwareness = () => {
+      if (hasEnhanced) return;
+
+      const currentState = yjsProvider.awareness.getLocalState();
+
+      const enhancedAwareness = {
+        ...currentState,
+        
+        user: {
+          id: String(currentUser.id),
+          name: currentUser.name,
+          email: currentUser.email,
+          avatarUrl: currentUser.avatarUrl ?? "",
+          role: userRole,
+        },
+        userId: String(currentUser.id),
+        document: {
+          canEdit: !readOnly && (userRole === "owner" || userRole === "editor"),
+          lastActivity: Date.now(),
+        },
+      };
+
+      Object.entries(enhancedAwareness).forEach(([key, value]) => {
+        yjsProvider.awareness.setLocalStateField(key, value);
+      });
+
+      hasEnhanced = true;
+    };
+
+    // Give CollaborationPlugin time to initialize, then enhance
+    const timeoutId = setTimeout(enhanceAwareness, 1000);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [yjsProvider, currentUser, userRole, readOnly, providerReady]);
 
   const createInitialEditorState = useCallback(() => {
     if (!initialContent) {
@@ -324,22 +349,17 @@ export default function LexicalEditor({
       ref={containerRef}
       className={cn("relative", !canEdit && "opacity-90", className)}
     >
-      <UserControlPanel
-        currentUser={
-          currentUser || {
-            id: "initial-user",
-            name: userProfile.name,
-            email: "unknown@example.com",
-            clerkUserId: "unknown",
-          }
-        }
-        connected={connected}
-        collaborators={collaborators}
-        onlineUsers={onlineUsers}
-        provider={yjsProvider}
-        yjsDoc={yjsDoc}
-        websocketUrl={websocketUrl}
-      />
+      {currentUser && (
+        <UserControlPanel
+          currentUser={currentUser}
+          connected={connected}
+          collaborators={collaborators}
+          onlineUsers={onlineUsers}
+          provider={yjsProvider}
+          yjsDoc={yjsDoc}
+          websocketUrl={websocketUrl}
+        />
+      )}
 
       <LexicalComposer initialConfig={editorConfig}>
         <EditableStateController readOnly={readOnly} userRole={userRole} />
@@ -355,9 +375,10 @@ export default function LexicalEditor({
                 id={documentId}
                 providerFactory={providerFactory}
                 shouldBootstrap={false}
-                username={userProfile.name}
+                username={currentUser?.name || userProfile.name}
                 cursorColor={userProfile.color}
                 cursorsContainerRef={containerRef}
+                initialEditorState={null}
               />
               <StateLoaderPlugin yjsDoc={yjsDoc} documentId={documentId} />
             </>

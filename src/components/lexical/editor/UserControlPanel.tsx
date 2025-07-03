@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useRef } from "react";
 
-// Structure that matches what's actually passed from LexicalEditor
+
 interface CollaboratorUser {
   id: string;
   name: string;
@@ -28,9 +28,8 @@ interface ConnectionEvent {
 interface UserControlPanelProps {
   currentUser: CollaboratorUser;
   connected: boolean;
-  collaborators: ActiveCollaborator[]; // Real collaborators from database
-  onlineUsers: Set<string>; // User IDs that are currently online
-  // Debug props
+  collaborators: ActiveCollaborator[]; 
+  onlineUsers: Set<string>; 
   provider?: any;
   yjsDoc?: any;
   websocketUrl?: string;
@@ -57,27 +56,45 @@ export default function UserControlPanel({
   const startTime = useRef(Date.now());
   const prevProviderId = useRef<string>("");
 
-  // Extract online user IDs from awareness
   const onlineUserIds = new Set<string>();
   for (const [, state] of awarenessUsers) {
-    if (state.user && typeof state.user.id === "string") {
-      onlineUserIds.add(state.user.id);
+    const userId = state.user?.id || state.userId || state.id;
+    if (userId && typeof userId === "string") {
+      onlineUserIds.add(userId);
     }
   }
+  // console.log("🔍 UserControlPanel awarenessUsers:", awarenessUsers);
 
-  // Filter collaborators to show only those online (based on awareness)
+  // Debug logging to compare with EditorHeader
+  // console.log("🔍 UserControlPanel awareness debug:", {
+  //   awarenessUsersCount: awarenessUsers.length,
+  //   onlineUserIds: Array.from(onlineUserIds),
+  //   collaborators: collaborators.map(c => ({
+  //     name: c.user.name,
+  //     userId: c.user.id,
+  //     isOnline: onlineUserIds.has(c.user.id),
+  //   })),
+  //   rawAwarenessUsers: awarenessUsers.map(([clientId, state]) => ({
+  //     clientId,
+  //     fullState: state,
+  //     hasUser: !!state.user,
+  //     userId: state.user?.id,
+  //     userIdType: typeof state.user?.id,
+  //     userName: state.user?.name,
+  //   })),
+  // });
+
+
   const onlineCollaborators = collaborators.filter(collab =>
     onlineUserIds.has(collab.user.id)
   );
 
-  // Reset state when provider changes (document changes)
+  // Reset state when provider changes 
   useEffect(() => {
     const providerId = provider?.doc?.guid || "";
     if (providerId && providerId !== prevProviderId.current) {
-      console
-        .log
-        // `🔄 UserControlPanel: Provider changed from ${prevProviderId.current} to ${providerId}`
-        ();
+      // console.log(`🔄 UserControlPanel: Provider changed from ${prevProviderId.current} to ${providerId}`);
+
 
       // Reset state for new document
       setConnectionHistory([]);
@@ -90,7 +107,7 @@ export default function UserControlPanel({
     }
   }, [provider]);
 
-  // Monitor connection changes
+
   useEffect(() => {
     if (prevConnected.current !== connected) {
       const event: ConnectionEvent = {
@@ -109,7 +126,7 @@ export default function UserControlPanel({
     }
   }, [connected, onlineUserIds.size]);
 
-  // Monitor Y.js provider and awareness
+
   useEffect(() => {
     if (!provider) {
       console.log("👥 UserControlPanel: No provider available");
@@ -120,12 +137,12 @@ export default function UserControlPanel({
 
     const updateProviderInfo = () => {
       try {
-        // WebSocket ready state
+
         if (provider.ws) {
           setWsReadyState(provider.ws.readyState);
         }
 
-        // Awareness users
+
         if (provider.awareness) {
           const awarenessStates = Array.from(
             provider.awareness.getStates().entries()
@@ -141,7 +158,7 @@ export default function UserControlPanel({
           // );
         }
 
-        // Y.js clients
+
         if (yjsDoc) {
           const clients = yjsDoc.getMap("clients");
           setYjsClients(new Set(clients.keys()));
@@ -151,11 +168,11 @@ export default function UserControlPanel({
       }
     };
 
-    // Initial update
+
     updateProviderInfo();
 
-    // Regular updates
-    const intervalId = setInterval(updateProviderInfo, 1000);
+
+    const intervalId = setInterval(updateProviderInfo, 5000);
 
     const onStatus = (event: any) => {
       console.log("👥 Provider status event:", event);
@@ -180,14 +197,14 @@ export default function UserControlPanel({
     };
 
     const onAwarenessChange = () => {
-      console.log("👥 Awareness changed, updating...");
+      // console.log("👥 Awareness changed, updating...");
       updateProviderInfo();
     };
 
     provider.on("status", onStatus);
     provider.on("connection-error", onConnectionError);
 
-    // Listen for awareness changes
+
     if (provider.awareness) {
       provider.awareness.on("change", onAwarenessChange);
     }
@@ -230,7 +247,7 @@ export default function UserControlPanel({
     return `${seconds}s`;
   };
 
-  // Get the document ID for display
+
   const documentId = provider?.doc?.guid || "unknown";
 
   return (

@@ -166,3 +166,4 @@ export async function requireSyncedUser(
 
   return user;
 }
+ 

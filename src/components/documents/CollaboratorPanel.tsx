@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -44,6 +44,7 @@ import InviteCollaboratorsDialog from "./InviteCollaboratorsDialog";
 
 interface Collaborator {
   id: string;
+  userId?: string; 
   name: string;
   email: string;
   avatar?: string;
@@ -51,11 +52,147 @@ interface Collaborator {
   role: "owner" | "editor" | "viewer";
 }
 
+interface CollaboratorItemProps {
+  collaborator: Collaborator;
+  index: number;
+  isOnline: boolean;
+  canManageCollaborators: boolean;
+  changingRoleForId: string | null;
+  onChangeRole: (collaboratorId: string, role: "EDITOR" | "VIEWER") => void;
+  onRemove: (collaborator: Collaborator) => void;
+  getRoleIcon: (role: string) => React.ReactNode;
+}
+
+function CollaboratorItem({
+  collaborator,
+  index,
+  isOnline,
+  canManageCollaborators,
+  changingRoleForId,
+  onChangeRole,
+  onRemove,
+  getRoleIcon,
+}: CollaboratorItemProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: index * 0.1 }}
+      className={`cursor-pointer rounded-lg border p-3 transition-colors ${
+        isOnline
+          ? "border-slate-200 bg-slate-50 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600"
+          : "border-slate-200/50 bg-slate-50/50 opacity-60 hover:bg-slate-100/50 dark:border-slate-600/50 dark:bg-slate-700/50 dark:hover:bg-slate-600/50"
+      }`}
+    >
+      <div className="flex items-center gap-3">
+        {/* Avatar with status */}
+        <div className="relative">
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={collaborator.avatar} alt={collaborator.name} />
+            <AvatarFallback className="text-xs">
+              {collaborator.name
+                .split(" ")
+                .map(n => n[0])
+                .join("")}
+            </AvatarFallback>
+          </Avatar>
+          <div
+            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 ${
+              isOnline ? "bg-green-500" : "bg-gray-400"
+            }`}
+          />
+        </div>
+
+        {/* User Info */}
+        <div className="min-w-0 flex-1">
+          <div className="mb-1 flex items-center gap-2">
+            <p className="truncate text-sm font-medium">{collaborator.name}</p>
+            {getRoleIcon(collaborator.role)}
+          </div>
+          <p className="truncate text-xs text-slate-600 dark:text-slate-300">
+            {collaborator.email}
+          </p>
+          <p className="text-xs text-slate-500">
+            {isOnline ? "Online" : "Offline"}
+          </p>
+        </div>
+      </div>
+
+      {/* Role & Actions */}
+      <div className="mt-3 flex items-center justify-between">
+        {/* Role Selector or Badge */}
+        {collaborator.role === "owner" ? (
+          <Badge
+            variant="default"
+            className="border-amber-200 bg-amber-100 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-400"
+          >
+            Owner
+          </Badge>
+        ) : canManageCollaborators ? (
+          <Select
+            value={collaborator.role.toUpperCase()}
+            onValueChange={(value: "EDITOR" | "VIEWER") =>
+              onChangeRole(collaborator.id, value)
+            }
+            disabled={changingRoleForId === collaborator.id}
+          >
+            <SelectTrigger className="h-7 w-20 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="EDITOR">
+                <div className="flex items-center gap-1">
+                  <Edit3 className="h-3 w-3" />
+                  Editor
+                </div>
+              </SelectItem>
+              <SelectItem value="VIEWER">
+                <div className="flex items-center gap-1">
+                  <Eye className="h-3 w-3" />
+                  Viewer
+                </div>
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <Badge
+            variant={collaborator.role === "editor" ? "default" : "outline"}
+            className="text-xs"
+          >
+            {collaborator.role === "editor" ? "Editor" : "Viewer"}
+          </Badge>
+        )}
+
+        {/* Remove Action */}
+        {collaborator.role !== "owner" && canManageCollaborators && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onClick={() => onRemove(collaborator)}
+                className="text-red-600 focus:text-red-600"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Remove access
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
 interface CollaboratorPanelProps {
   isOpen: boolean;
   onClose: () => void;
   collaborators: Collaborator[];
   currentUserRole: "owner" | "editor" | "viewer";
+  provider?: any; 
   onAddCollaborator?: (
     email: string,
     role: "EDITOR" | "VIEWER"
@@ -72,6 +209,7 @@ export default function CollaboratorPanel({
   onClose,
   collaborators,
   currentUserRole,
+  provider,
   onAddCollaborator,
   onRemoveCollaborator,
   onChangeRole,
@@ -85,6 +223,64 @@ export default function CollaboratorPanel({
   );
 
   const canManageCollaborators = currentUserRole === "owner";
+
+  const [awarenessUsers, setAwarenessUsers] = useState<any[]>([]);
+
+  const onlineUserIds = new Set<string>();
+  for (const [, state] of awarenessUsers) {
+    const userId = state.user?.id || state.userId || state.id;
+    if (userId && typeof userId === "string") {
+      onlineUserIds.add(userId);
+    }
+  }
+
+  const onlineCollaborators = collaborators.filter(
+    collab => collab.userId && onlineUserIds.has(collab.userId)
+  );
+  const offlineCollaborators = collaborators.filter(
+    collab => !collab.userId || !onlineUserIds.has(collab.userId)
+  );
+
+  useEffect(() => {
+    if (!provider) {
+      return;
+    }
+
+    const updateProviderInfo = () => {
+      try {
+        if (provider.awareness) {
+          const awarenessStates = Array.from(
+            provider.awareness.getStates().entries()
+          );
+          setAwarenessUsers(awarenessStates);
+        }
+      } catch (error) {
+        console.error(
+          "❌ CollaboratorPanel: Error updating provider info:",
+          error
+        );
+      }
+    };
+
+    updateProviderInfo();
+
+    const intervalId = setInterval(updateProviderInfo, 1000);
+
+    const onAwarenessChange = () => {
+      updateProviderInfo();
+    };
+
+    if (provider.awareness) {
+      provider.awareness.on("change", onAwarenessChange);
+    }
+
+    return () => {
+      clearInterval(intervalId);
+      if (provider.awareness) {
+        provider.awareness.off("change", onAwarenessChange);
+      }
+    };
+  }, [provider]);
 
   const handleRemoveConfirm = async () => {
     if (!collaboratorToRemove || !onRemoveCollaborator) return;
@@ -117,7 +313,6 @@ export default function CollaboratorPanel({
       return;
     }
 
-    // ✅ Convert current role to uppercase for comparison
     const currentRole = collaborator.role.toUpperCase();
 
     console.log("🔄 Role change request:", {
@@ -128,7 +323,6 @@ export default function CollaboratorPanel({
       hasChange: currentRole !== newRole,
     });
 
-    // ✅ Prevent unnecessary API calls
     if (currentRole === newRole) {
       console.log("✅ No role change needed");
       return;
@@ -166,28 +360,6 @@ export default function CollaboratorPanel({
         return <Eye className="h-4 w-4 text-gray-500" />;
       default:
         return null;
-    }
-  };
-
-  const getStatusDotColor = (status: string) => {
-    switch (status) {
-      case "online":
-        return "bg-green-500";
-      case "away":
-        return "bg-yellow-500";
-      default:
-        return "bg-gray-400";
-    }
-  };
-
-  const getStatusText = (status: string) => {
-    switch (status) {
-      case "online":
-        return "Online";
-      case "away":
-        return "Away";
-      default:
-        return "Offline";
     }
   };
 
@@ -245,147 +417,64 @@ export default function CollaboratorPanel({
                     </div>
                   )}
 
-                {/* Collaborators List */}
-                <div>
-                  <h4 className="mb-2 font-medium">People with access</h4>
-                  <div className="space-y-3">
-                    {collaborators.length > 0 ? (
-                      collaborators.map((collaborator, index) => (
-                        <motion.div
+                {/* Online Users Section */}
+                {onlineCollaborators.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 flex items-center gap-2 font-medium">
+                      <div className="h-2 w-2 rounded-full bg-green-500"></div>
+                      Online ({onlineCollaborators.length})
+                    </h4>
+                    <div className="space-y-3">
+                      {onlineCollaborators.map((collaborator, index) => (
+                        <CollaboratorItem
                           key={collaborator.id}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: index * 0.1 }}
-                          className="cursor-pointer rounded-lg border border-slate-200 bg-slate-50 p-3 transition-colors hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-700 dark:hover:bg-slate-600"
-                        >
-                          <div className="flex items-center gap-3">
-                            {/* Avatar with status */}
-                            <div className="relative">
-                              <Avatar className="h-8 w-8">
-                                <AvatarImage
-                                  src={collaborator.avatar}
-                                  alt={collaborator.name}
-                                />
-                                <AvatarFallback className="text-xs">
-                                  {collaborator.name
-                                    .split(" ")
-                                    .map(n => n[0])
-                                    .join("")}
-                                </AvatarFallback>
-                              </Avatar>
-                              <div
-                                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 ${getStatusDotColor(
-                                  collaborator.status
-                                )}`}
-                              />
-                            </div>
-
-                            {/* User Info */}
-                            <div className="min-w-0 flex-1">
-                              <div className="mb-1 flex items-center gap-2">
-                                <p className="truncate text-sm font-medium">
-                                  {collaborator.name}
-                                </p>
-                                {getRoleIcon(collaborator.role)}
-                              </div>
-                              <p className="truncate text-xs text-slate-600 dark:text-slate-300">
-                                {collaborator.email}
-                              </p>
-                              <p className="text-xs text-slate-500">
-                                {getStatusText(collaborator.status)}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Role & Actions */}
-                          <div className="mt-3 flex items-center justify-between">
-                            {/* Role Selector or Badge */}
-                            {collaborator.role === "owner" ? (
-                              <Badge
-                                variant="default"
-                                className="border-amber-200 bg-amber-100 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-400"
-                              >
-                                Owner
-                              </Badge>
-                            ) : canManageCollaborators && onChangeRole ? (
-                              <Select
-                                value={collaborator.role.toUpperCase()} // ✅ Ensure uppercase
-                                onValueChange={(value: "EDITOR" | "VIEWER") =>
-                                  handleRoleChange(collaborator.id, value)
-                                }
-                                disabled={changingRoleForId === collaborator.id}
-                              >
-                                <SelectTrigger className="h-7 w-20 text-xs">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="EDITOR">
-                                    <div className="flex items-center gap-1">
-                                      <Edit3 className="h-3 w-3" />
-                                      Editor
-                                    </div>
-                                  </SelectItem>
-                                  <SelectItem value="VIEWER">
-                                    <div className="flex items-center gap-1">
-                                      <Eye className="h-3 w-3" />
-                                      Viewer
-                                    </div>
-                                  </SelectItem>
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Badge
-                                variant={
-                                  collaborator.role === "editor"
-                                    ? "default"
-                                    : "outline"
-                                }
-                                className="text-xs"
-                              >
-                                {collaborator.role === "editor"
-                                  ? "Editor"
-                                  : "Viewer"}
-                              </Badge>
-                            )}
-
-                            {/* Remove Action */}
-                            {collaborator.role !== "owner" &&
-                              canManageCollaborators && (
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-7 w-7 p-0"
-                                    >
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end">
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        setCollaboratorToRemove(collaborator)
-                                      }
-                                      className="text-red-600 focus:text-red-600"
-                                    >
-                                      <Trash2 className="mr-2 h-4 w-4" />
-                                      Remove access
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              )}
-                          </div>
-                        </motion.div>
-                      ))
-                    ) : (
-                      <div className="text-center text-slate-500 dark:text-slate-400">
-                        <Users className="mx-auto mb-2 h-8 w-8 opacity-50" />
-                        <p className="text-sm">No collaborators yet</p>
-                        <p className="text-xs">Invite people to collaborate!</p>
-                      </div>
-                    )}
+                          collaborator={collaborator}
+                          index={index}
+                          isOnline={true}
+                          canManageCollaborators={canManageCollaborators}
+                          changingRoleForId={changingRoleForId}
+                          onChangeRole={handleRoleChange}
+                          onRemove={setCollaboratorToRemove}
+                          getRoleIcon={getRoleIcon}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* Offline Users Section */}
+                {offlineCollaborators.length > 0 && (
+                  <div>
+                    <h4 className="mb-2 flex items-center gap-2 font-medium">
+                      <div className="h-2 w-2 rounded-full bg-gray-400"></div>
+                      Offline ({offlineCollaborators.length})
+                    </h4>
+                    <div className="space-y-3">
+                      {offlineCollaborators.map((collaborator, index) => (
+                        <CollaboratorItem
+                          key={collaborator.id}
+                          collaborator={collaborator}
+                          index={index}
+                          isOnline={false}
+                          canManageCollaborators={canManageCollaborators}
+                          changingRoleForId={changingRoleForId}
+                          onChangeRole={handleRoleChange}
+                          onRemove={setCollaboratorToRemove}
+                          getRoleIcon={getRoleIcon}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* No Collaborators */}
+                {collaborators.length === 0 && (
+                  <div className="text-center text-slate-500 dark:text-slate-400">
+                    <Users className="mx-auto mb-2 h-8 w-8 opacity-50" />
+                    <p className="text-sm">No collaborators yet</p>
+                    <p className="text-xs">Invite people to collaborate!</p>
+                  </div>
+                )}
               </div>
             </ScrollArea>
           </motion.div>

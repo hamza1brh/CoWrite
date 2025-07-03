@@ -41,6 +41,7 @@ export type UserRole = "owner" | "editor" | "viewer";
 
 export interface Collaborator {
   id: string;
+  userId?: string;
   name: string;
   email: string;
   avatar?: string;
@@ -77,6 +78,7 @@ export interface EditorHeaderProps {
   ) => Promise<void>;
   showCollaborators?: boolean;
   onToggleCollaborators?: () => void;
+  provider?: any;
 }
 
 export default function EditorHeader({
@@ -97,17 +99,75 @@ export default function EditorHeader({
   onChangeRole,
   showCollaborators = false,
   onToggleCollaborators,
+  provider,
 }: EditorHeaderProps) {
   const canEdit = userRole === "owner" || userRole === "editor";
 
-  // Local state for immediate UI updates
+  const [awarenessUsers, setAwarenessUsers] = useState<any[]>([]);
+
+  const onlineUserIds = new Set<string>();
+  for (const [, state] of awarenessUsers) {
+    const userId = state.user?.id || state.userId || state.id;
+    if (userId && typeof userId === "string") {
+      onlineUserIds.add(userId);
+    }
+  }
+
+
+  const prevOnlineCountRef = useRef(0);
+  if (onlineUserIds.size !== prevOnlineCountRef.current) {
+    console.log("📋 EditorHeader: Online users changed:", {
+      count: onlineUserIds.size,
+      onlineUserIds: Array.from(onlineUserIds),
+    });
+    prevOnlineCountRef.current = onlineUserIds.size;
+  }
+
+
+  useEffect(() => {
+    if (!provider) {
+      return;
+    }
+
+    const updateProviderInfo = () => {
+      try {
+        
+        if (provider.awareness) {
+          const awarenessStates = Array.from(
+            provider.awareness.getStates().entries()
+          );
+          setAwarenessUsers(awarenessStates);
+        }
+      } catch (error) {
+        console.error("Error updating provider info:", error);
+      }
+    };
+
+    updateProviderInfo();
+
+    const intervalId = setInterval(updateProviderInfo, 5000);
+
+    const onAwarenessChange = () => {
+      updateProviderInfo();
+    };
+
+    if (provider.awareness) {
+      provider.awareness.on("change", onAwarenessChange);
+    }
+
+    return () => {
+      clearInterval(intervalId);
+      if (provider.awareness) {
+        provider.awareness.off("change", onAwarenessChange);
+      }
+    };
+  }, [provider]);
+
   const [localTitle, setLocalTitle] = useState(documentTitle);
   const titleInputRef = useRef<HTMLInputElement>(null);
 
-  // Modal states
   const [showInviteModal, setShowInviteModal] = useState(false);
 
-  // Update local state when prop changes
   useEffect(() => {
     setLocalTitle(documentTitle);
   }, [documentTitle]);
@@ -295,11 +355,10 @@ export default function EditorHeader({
                         </Avatar>
                         <div
                           className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 sm:h-3 sm:w-3 ${
-                            collaborator.status === "online"
+                            collaborator.userId &&
+                            onlineUserIds.has(collaborator.userId)
                               ? "bg-green-500"
-                              : collaborator.status === "away"
-                                ? "bg-yellow-500"
-                                : "bg-gray-400"
+                              : "bg-gray-400"
                           }`}
                         />
                       </motion.div>
