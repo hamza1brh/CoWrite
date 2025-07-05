@@ -3,7 +3,6 @@ import { Role } from "@prisma/client";
 // Base Prisma types
 export interface User {
   id: string;
-  clerkId: string;
   email: string;
   firstName: string | null;
   lastName: string | null;
@@ -15,7 +14,7 @@ export interface User {
 export interface Document {
   id: string;
   title: string;
-  content: any; 
+  content: any;
   coverImage: string | null;
   isPublic: boolean;
   createdAt: string;
@@ -56,9 +55,8 @@ export interface DocumentData {
   collaboratorIds: string[];
 }
 
-
 export interface Collaborator {
-  id: number; 
+  id: number;
   name: string;
   avatar: string;
   status: "online" | "away" | "offline";

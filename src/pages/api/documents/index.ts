@@ -19,7 +19,7 @@ export default async function handler(
 
 async function handleGetDocuments(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const user = await requireSyncedUser(req);
+    const user = await requireSyncedUser(req, res);
 
     const documents = await prisma.document.findMany({
       where: {
@@ -79,7 +79,7 @@ async function handleGetDocuments(req: NextApiRequest, res: NextApiResponse) {
 
 async function handleCreateDocument(req: NextApiRequest, res: NextApiResponse) {
   try {
-    const user = await requireSyncedUser(req);
+    const user = await requireSyncedUser(req, res);
     const { title } = req.body;
 
     const defaultContent = {

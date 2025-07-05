@@ -1,40 +1,108 @@
-import { getAuth } from "@clerk/nextjs/server";
-import { NextApiRequest } from "next";
+import { NextApiRequest, NextApiResponse } from "next";
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "./auth-config";
 import { prisma } from "./prisma";
 
-export async function getUserFromRequest(req: NextApiRequest) {
-  const { userId } = getAuth(req);
+export async function getServerAuthSession(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  return await getServerSession(req, res, authOptions);
+}
 
-  if (!userId) {
+export async function getUserFromRequest(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const session = await getServerAuthSession(req, res);
+
+  console.log(
+    "🔍 getUserFromRequest - Full session:",
+    JSON.stringify(session, null, 2)
+  );
+
+  if (!session?.user?.id) {
+    console.log("❌ No session or user ID found");
     throw new Error("Unauthorized");
   }
 
-  console.log("🔍 getUserFromRequest - Clerk ID:", userId);
+  // Additional security: Validate user ID format
+  const userId = session.user.id;
+  if (!userId || typeof userId !== "string" || userId.trim().length === 0) {
+    console.log("❌ Invalid user ID format:", userId);
+    throw new Error("Invalid user session");
+  }
 
+  console.log("🔍 getUserFromRequest - User ID from session:", userId);
 
-  let user = await prisma.user.findUnique({
-    where: { clerkId: userId },
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      imageUrl: true,
+      createdAt: true,
+      updatedAt: true,
+    },
   });
 
   if (user) {
-    console.log("✅ User found by Clerk ID:", user.email);
+    // Additional security: Validate user data integrity
+    if (!user.email || !user.id) {
+      console.log("❌ User data integrity check failed:", {
+        hasId: !!user.id,
+        hasEmail: !!user.email,
+      });
+      throw new Error("Invalid user data");
+    }
+
+    console.log("✅ User found in database:", {
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+    });
     return user;
   }
 
-  // Strategy 2: If not found, this might be a different environment
+  console.log("❌ User not found in database by ID:", userId);
 
-  console.log("❌ User not found by Clerk ID:", userId);
-  console.log("💡 Hint: User might need to be synced between environments");
+  // Try to find by email as fallback (but validate session email)
+  if (session.user.email && typeof session.user.email === "string") {
+    const sessionEmail = session.user.email.trim().toLowerCase();
+    if (sessionEmail.length > 0) {
+      console.log("🔍 Trying to find user by email:", sessionEmail);
+      const userByEmail = await prisma.user.findUnique({
+        where: { email: sessionEmail },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          imageUrl: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+
+      if (userByEmail) {
+        console.log("✅ Found user by email:", userByEmail.id);
+        return userByEmail;
+      }
+    }
+  }
 
   throw new Error("User not found in database");
 }
 
-export function requireAuth(req: NextApiRequest) {
-  const { userId } = getAuth(req);
+export async function requireAuth(req: NextApiRequest, res: NextApiResponse) {
+  const session = await getServerAuthSession(req, res);
 
-  if (!userId) {
+  if (!session?.user?.id) {
     throw new Error("Unauthorized");
   }
 
-  return userId;
+  return session.user.id;
 }

@@ -14,7 +14,7 @@ export default async function handler(
   }
 
   try {
-    const currentUser = await syncUserToDatabase(req);
+    const currentUser = await syncUserToDatabase(req, res);
 
     switch (req.method) {
       case "GET":

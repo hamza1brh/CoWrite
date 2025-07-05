@@ -1,31 +1,48 @@
-import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
+import { withAuth } from "next-auth/middleware";
 
-const isProtectedRoute = createRouteMatcher([
-  "/",
-  "/editor(.*)",
-  "/api/documents(.*)",
-  "/api/comments(.*)",
-  "/api/collaborators(.*)",
-  "/api/users(.*)",
-]);
+export default withAuth(
+  function middleware(req) {
+    const { pathname } = req.nextUrl;
 
-const isPublicRoute = createRouteMatcher([
-  "/welcome",
-  "/sign-in(.*)",
-  "/sign-up(.*)",
-  "/api/webhooks(.*)",
-  "/api/test-db(.*)",
-]);
+    // Redirect unauthenticated users from root to welcome page
+    if (pathname === "/" && !req.nextauth.token) {
+      return Response.redirect(new URL("/welcome", req.url));
+    }
+  },
+  {
+    callbacks: {
+      authorized: ({ token, req }) => {
+        const { pathname } = req.nextUrl;
 
-export default clerkMiddleware(async (auth, req) => {
-  if (isPublicRoute(req)) {
-    return;
+        // Public routes that don't require authentication
+        const publicRoutes = ["/welcome", "/sign-in", "/sign-up", "/api/auth"];
+
+        if (publicRoutes.some(route => pathname.startsWith(route))) {
+          return true;
+        }
+
+        // Protected routes that require authentication
+        const protectedRoutes = [
+          "/",
+          "/editor",
+          "/api/documents",
+          "/api/comments",
+          "/api/users",
+        ];
+
+        if (protectedRoutes.some(route => pathname.startsWith(route))) {
+          return !!token;
+        }
+
+        // Default: require authentication
+        return !!token;
+      },
+    },
+    pages: {
+      signIn: "/welcome",
+    },
   }
-
-  if (isProtectedRoute(req)) {
-    await auth.protect();
-  }
-});
+);
 
 export const config = {
   matcher: [

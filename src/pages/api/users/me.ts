@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { syncUserToDatabase } from "@/lib/user-sync";
+import { getUserFromRequest } from "@/lib/auth";
 
 export default async function handler(
   req: NextApiRequest,
@@ -10,15 +10,24 @@ export default async function handler(
   }
 
   try {
-    const user = await syncUserToDatabase(req);
+    const user = await getUserFromRequest(req, res);
 
     if (!user) {
       return res.status(401).json({ error: "Authentication required" });
     }
 
-    res.json(user);
+    res.json({
+      id: user.id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      imageUrl: user.imageUrl,
+      name: `${user.firstName} ${user.lastName}`.trim(),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt
+    });
   } catch (error) {
-    console.error("Error syncing user:", error);
+    console.error("Error getting current user:", error);
     res.status(500).json({ error: "Internal server error" });
   }
 }

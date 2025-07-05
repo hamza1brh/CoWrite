@@ -14,11 +14,10 @@ export default async function handler(
       req.query.id
     );
 
-    const user = await getUserFromRequest(req);
+    const user = await getUserFromRequest(req, res);
     console.log("🔍 Authenticated user:", {
       id: user.id,
       email: user.email,
-      clerkId: user.clerkId,
     });
 
     const { id } = req.query;

@@ -5,7 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import { useUser } from "@clerk/nextjs";
+import { useSession } from "next-auth/react";
 import { useRouter } from "next/router";
 
 // Components
@@ -39,7 +39,9 @@ function transformDocumentForCard(doc: DocumentWithOwner): DocumentCardData {
 }
 
 export default function Dashboard() {
-  const { user, isLoaded } = useUser();
+  const { data: session, status } = useSession();
+  const isLoaded = status !== "loading";
+  const user = session?.user;
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [searchQuery, setSearchQuery] = useState("");
@@ -54,7 +56,6 @@ export default function Dashboard() {
     }
   }, [isLoaded, user, router]);
 
-  
   useEffect(() => {
     if (!isLoaded || !user) return;
 
@@ -92,7 +93,6 @@ export default function Dashboard() {
     fetchDocuments();
   }, [isLoaded, user]);
 
-  
   const handleCreateDocument = async () => {
     setCreating(true);
     try {
@@ -106,14 +106,14 @@ export default function Dashboard() {
           title: "Untitled Document",
         }),
       });
- 
+
       console.log("creating new document , Response status:", response.status);
       console.log("Response ok:", response.ok);
 
       if (response.ok) {
         const newDoc: DocumentWithOwner = await response.json();
         console.log("Created document:", newDoc);
-        
+
         router.push(`/editor/${newDoc.id}`);
       } else {
         const errorData = await response.json();
@@ -126,7 +126,6 @@ export default function Dashboard() {
     }
   };
 
-  
   if (!isLoaded || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
@@ -135,7 +134,6 @@ export default function Dashboard() {
     );
   }
 
-  
   const filteredDocuments = documents.filter(doc =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -155,14 +153,13 @@ export default function Dashboard() {
     visible: { opacity: 1, y: 0 },
   };
 
-  
   if (loading) {
     return (
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
           <div className="light-gradient-bg dark:dark-gradient-bg min-h-screen">
-            <DashboardHeader userName={user?.firstName || "User"} />
+            <DashboardHeader userName={user?.name || "User"} />
             <main className="container mx-auto px-6 py-8">
               <div className="flex h-64 items-center justify-center">
                 <div className="text-center">
@@ -184,7 +181,7 @@ export default function Dashboard() {
       <AppSidebar />
       <SidebarInset>
         <div className="light-gradient-bg dark:dark-gradient-bg min-h-screen">
-          <DashboardHeader userName={user?.firstName || "User"} />
+          <DashboardHeader userName={user?.name || "User"} />
 
           {/* Main Content */}
           <main className="container mx-auto px-6 py-8">
@@ -196,7 +193,7 @@ export default function Dashboard() {
               transition={{ duration: 0.6 }}
             >
               <h2 className="mb-4 text-4xl font-bold text-slate-900 dark:text-white">
-                Welcome back, {user?.firstName || "User"}
+                Welcome back, {user?.name || "User"}
               </h2>
               <p className="mb-8 text-xl text-slate-600 dark:text-slate-300">
                 Continue working on your documents or start something new

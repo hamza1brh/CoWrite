@@ -15,10 +15,19 @@ import EditorHeader, {
 import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 import CollaboratorPanel from "@/components/documents/CollaboratorPanel";
-import { useUser } from "@clerk/nextjs";
+import { useSession } from "next-auth/react";
 
 import type { CollaboratorWithUser } from "@/lib/types/api";
-import { getAISuggestions, type AISuggestion } from "@/data/mockAi";
+
+// AI Suggestion type definition (matches AiAssistantPanel component)
+interface AISuggestion {
+  id: string;
+  type: "improvement" | "addition" | "correction" | "formatting";
+  title: string;
+  description: string;
+  confidence: number;
+  appliedAt?: string;
+}
 
 interface EditorDocument {
   id: string;
@@ -66,7 +75,8 @@ interface ApiCollaborator {
 export default function DocumentEditor() {
   const router = useRouter();
   const { id } = router.query;
-  const { user: clerkUser, isLoaded } = useUser();
+  const { data: session, status } = useSession();
+  const isLoaded = status !== "loading";
 
   const [databaseUser, setDatabaseUser] = useState<any>(null);
 
@@ -95,16 +105,14 @@ export default function DocumentEditor() {
   const [yjsProvider, setYjsProvider] = useState<any>(null);
   const [connected, setConnected] = useState<boolean>(false);
 
-  
   const transformCollaboratorsForHeader = useCallback(
     (apiCollaborators: ApiCollaborator[]): Collaborator[] => {
       return apiCollaborators.map(collab => {
-        
         const role = collab.role.toLowerCase() as "owner" | "editor" | "viewer";
 
         return {
           id: collab.id,
-          userId: String(collab.user?.id ?? collab.userId ?? ""), 
+          userId: String(collab.user?.id ?? collab.userId ?? ""),
           name:
             `${collab.user.firstName} ${collab.user.lastName}`.trim() ||
             collab.user.email,
@@ -119,19 +127,16 @@ export default function DocumentEditor() {
     []
   );
 
-  
   const handleProviderReady = useCallback((provider: any) => {
     console.log("📡 Editor received provider:", !!provider);
     setYjsProvider(provider);
   }, []);
 
-  
   const handleConnectionStatusChange = useCallback((isConnected: boolean) => {
     console.log("📡 Editor connection status changed:", isConnected);
     setConnected(isConnected);
   }, []);
 
-  
   const userRole = useMemo(() => {
     if (!document || !databaseUser) {
       return "viewer";
@@ -164,7 +169,7 @@ export default function DocumentEditor() {
     }
 
     return "viewer";
-  }, [document, databaseUser, collaborators]); 
+  }, [document, databaseUser, collaborators]);
 
   useEffect(() => {
     if (userRole === "owner" || userRole === "editor") {
@@ -175,51 +180,74 @@ export default function DocumentEditor() {
   }, [userRole]);
 
   useEffect(() => {
-    if (!isLoaded || !clerkUser) return;
+    if (!isLoaded || !session?.user) return;
 
     const fetchDatabaseUser = async () => {
       try {
+        console.log("🔍 EDITOR - Fetching database user...");
         const response = await fetch("/api/users/me");
 
         if (response.ok) {
           const dbUser = await response.json();
+          console.log("✅ EDITOR - Database user loaded:", dbUser.email);
           setDatabaseUser(dbUser);
         } else {
-          console.error("Failed to sync user to database");
+          console.error(
+            "❌ EDITOR - Failed to sync user to database, status:",
+            response.status
+          );
+          const errorText = await response.text();
+          console.error("❌ EDITOR - Error response:", errorText);
         }
       } catch (error) {
-        console.error("Error syncing user:", error);
+        console.error("❌ EDITOR - Error syncing user:", error);
       }
     };
 
     fetchDatabaseUser();
-  }, [isLoaded, clerkUser]);
+  }, [isLoaded, session]);
 
-  
   useEffect(() => {
-    if (isLoaded && !clerkUser) {
+    if (isLoaded && !session?.user) {
       router.replace("/welcome");
     }
-  }, [isLoaded, clerkUser, router]);
+  }, [isLoaded, session, router]);
 
-  
   useEffect(() => {
+    console.log("🔍 EDITOR - Document fetch conditions:", {
+      hasId: !!id,
+      idType: typeof id,
+      isLoaded,
+      hasSession: !!session?.user,
+      hasDatabaseUser: !!databaseUser,
+    });
+
     if (
       !id ||
       typeof id !== "string" ||
       !isLoaded ||
-      !clerkUser ||
+      !session?.user ||
       !databaseUser
-    )
+    ) {
+      console.log("🔍 EDITOR - Not ready to fetch document yet");
       return;
+    }
+
+    console.log("🔍 EDITOR - Starting document fetch for:", id);
 
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
 
+        console.log("🔍 EDITOR - Fetching document from API...");
         // Fetch document
         const response = await fetch(`/api/documents/${id}`);
+
+        console.log(
+          "🔍 EDITOR - Document API response status:",
+          response.status
+        );
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -233,6 +261,7 @@ export default function DocumentEditor() {
         }
 
         const docData = await response.json();
+        console.log("✅ EDITOR - Document loaded successfully:", docData.title);
 
         const transformedDoc: EditorDocument = {
           id: docData.id,
@@ -252,12 +281,10 @@ export default function DocumentEditor() {
         lastSavedContentRef.current = transformedDoc.content;
         isInitialLoadRef.current = true;
 
-        const [commentsResponse, collaboratorsResponse, aiData] =
-          await Promise.all([
-            fetch(`/api/documents/${id}/comments`),
-            fetch(`/api/documents/${id}/collaborators`),
-            getAISuggestions(id),
-          ]);
+        const [commentsResponse, collaboratorsResponse] = await Promise.all([
+          fetch(`/api/documents/${id}/comments`),
+          fetch(`/api/documents/${id}/collaborators`),
+        ]);
 
         if (commentsResponse.ok) {
           const commentsData = await commentsResponse.json();
@@ -278,9 +305,9 @@ export default function DocumentEditor() {
           setCollaborators([]);
         }
 
-        setAiSuggestions(aiData);
+        setAiSuggestions([]);
       } catch (err) {
-        console.error("Error fetching document:", err);
+        console.error("❌ EDITOR - Error fetching document:", err);
         setError("Failed to load document data");
       } finally {
         setLoading(false);
@@ -288,9 +315,8 @@ export default function DocumentEditor() {
     };
 
     fetchData();
-  }, [id, isLoaded, clerkUser, databaseUser]);
+  }, [id, isLoaded, session, databaseUser]);
 
-  
   const handleAddCollaborator = async (
     email: string,
     role: "EDITOR" | "VIEWER"
@@ -384,7 +410,6 @@ export default function DocumentEditor() {
     }
   };
 
-  
   const handleTitleChange = async (newTitle: string): Promise<void> => {
     if (!document) return;
 
@@ -411,7 +436,6 @@ export default function DocumentEditor() {
     }
   };
 
-  
   const handleModeChange = (newMode: DocumentMode) => {
     if (newMode === "editing" && userRole === "viewer") {
       return;
@@ -419,7 +443,6 @@ export default function DocumentEditor() {
     setMode(newMode);
   };
 
-  
   const handleContentChange = useCallback(
     (editorState: any) => {
       if (!document) return;
@@ -475,7 +498,6 @@ export default function DocumentEditor() {
         databaseUser.email,
       email: databaseUser.email,
       avatarUrl: databaseUser.imageUrl,
-      clerkUserId: databaseUser.clerkId,
     };
   }, [databaseUser]);
 
@@ -488,7 +510,6 @@ export default function DocumentEditor() {
           collab.user.email,
         email: collab.user.email,
         avatarUrl: collab.user.imageUrl,
-        clerkUserId: String(collab.user.id),
       },
       role: collab.role.toLowerCase(),
       isOnline: false,
@@ -498,7 +519,7 @@ export default function DocumentEditor() {
   // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
 
-  if (!isLoaded || !clerkUser || !databaseUser || loading) {
+  if (!isLoaded || !session?.user || !databaseUser || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -614,10 +635,8 @@ export default function DocumentEditor() {
                     onRefreshSuggestions={async () => {
                       if (!document?.id) return;
                       try {
-                        const newSuggestions = await getAISuggestions(
-                          document.id
-                        );
-                        setAiSuggestions(newSuggestions);
+                        // TODO: Implement real AI suggestions API
+                        setAiSuggestions([]);
                       } catch (err) {
                         console.error("Failed to refresh AI suggestions:", err);
                       }
@@ -678,10 +697,8 @@ export default function DocumentEditor() {
                   onRefreshSuggestions={async () => {
                     if (!document?.id) return;
                     try {
-                      const newSuggestions = await getAISuggestions(
-                        document.id
-                      );
-                      setAiSuggestions(newSuggestions);
+                      // TODO: Implement real AI suggestions API
+                      setAiSuggestions([]);
                     } catch (err) {
                       console.error("Failed to refresh AI suggestions:", err);
                     }
