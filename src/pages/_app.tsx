@@ -1,6 +1,6 @@
 import type { AppProps } from "next/app";
 import { Inter } from "next/font/google";
-import { ClerkProvider } from "@clerk/nextjs";
+import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "@/components/theme-provider";
 import "@/styles/globals.css";
 
@@ -10,9 +10,12 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
-export default function App({ Component, pageProps }: AppProps) {
+export default function App({ 
+  Component, 
+  pageProps: { session, ...pageProps } 
+}: AppProps) {
   return (
-    <ClerkProvider>
+    <SessionProvider session={session}>
       <div className={`${inter.variable} font-sans`}>
         <ThemeProvider
           attribute="class"
@@ -23,6 +26,6 @@ export default function App({ Component, pageProps }: AppProps) {
           <Component {...pageProps} />
         </ThemeProvider>
       </div>
-    </ClerkProvider>
+    </SessionProvider>
   );
 }

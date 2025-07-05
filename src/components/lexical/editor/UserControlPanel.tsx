@@ -1,12 +1,10 @@
 import { Fragment, useState, useEffect, useRef } from "react";
 
-
 interface CollaboratorUser {
   id: string;
   name: string;
   email: string;
   avatarUrl?: string;
-  clerkUserId: string;
 }
 
 interface ActiveCollaborator {
@@ -28,8 +26,8 @@ interface ConnectionEvent {
 interface UserControlPanelProps {
   currentUser: CollaboratorUser;
   connected: boolean;
-  collaborators: ActiveCollaborator[]; 
-  onlineUsers: Set<string>; 
+  collaborators: ActiveCollaborator[];
+  onlineUsers: Set<string>;
   provider?: any;
   yjsDoc?: any;
   websocketUrl?: string;
@@ -84,17 +82,15 @@ export default function UserControlPanel({
   //   })),
   // });
 
-
   const onlineCollaborators = collaborators.filter(collab =>
     onlineUserIds.has(collab.user.id)
   );
 
-  // Reset state when provider changes 
+  // Reset state when provider changes
   useEffect(() => {
     const providerId = provider?.doc?.guid || "";
     if (providerId && providerId !== prevProviderId.current) {
       // console.log(`🔄 UserControlPanel: Provider changed from ${prevProviderId.current} to ${providerId}`);
-
 
       // Reset state for new document
       setConnectionHistory([]);
@@ -106,7 +102,6 @@ export default function UserControlPanel({
       prevProviderId.current = providerId;
     }
   }, [provider]);
-
 
   useEffect(() => {
     if (prevConnected.current !== connected) {
@@ -126,7 +121,6 @@ export default function UserControlPanel({
     }
   }, [connected, onlineUserIds.size]);
 
-
   useEffect(() => {
     if (!provider) {
       console.log("👥 UserControlPanel: No provider available");
@@ -137,11 +131,9 @@ export default function UserControlPanel({
 
     const updateProviderInfo = () => {
       try {
-
         if (provider.ws) {
           setWsReadyState(provider.ws.readyState);
         }
-
 
         if (provider.awareness) {
           const awarenessStates = Array.from(
@@ -158,7 +150,6 @@ export default function UserControlPanel({
           // );
         }
 
-
         if (yjsDoc) {
           const clients = yjsDoc.getMap("clients");
           setYjsClients(new Set(clients.keys()));
@@ -168,9 +159,7 @@ export default function UserControlPanel({
       }
     };
 
-
     updateProviderInfo();
-
 
     const intervalId = setInterval(updateProviderInfo, 5000);
 
@@ -203,7 +192,6 @@ export default function UserControlPanel({
 
     provider.on("status", onStatus);
     provider.on("connection-error", onConnectionError);
-
 
     if (provider.awareness) {
       provider.awareness.on("change", onAwarenessChange);
@@ -246,7 +234,6 @@ export default function UserControlPanel({
     if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
     return `${seconds}s`;
   };
-
 
   const documentId = provider?.doc?.guid || "unknown";
 

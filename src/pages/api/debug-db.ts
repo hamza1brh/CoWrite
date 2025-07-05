@@ -10,7 +10,6 @@ export default async function handler(
   }
 
   try {
-    
     const documents = await prisma.document.findMany({
       include: {
         owner: {
@@ -31,7 +30,6 @@ export default async function handler(
     const users = await prisma.user.findMany({
       select: {
         id: true,
-        clerkId: true,
         firstName: true,
         lastName: true,
         email: true,

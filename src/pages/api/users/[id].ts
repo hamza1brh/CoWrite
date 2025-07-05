@@ -1,13 +1,14 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { getAuth } from "@clerk/nextjs/server";
+import { getUserFromRequest } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
 ) {
-  const { userId } = getAuth(req);
-  if (!userId) {
+  try {
+    await getUserFromRequest(req, res);
+  } catch (error) {
     return res.status(401).json({ error: "Unauthorized" });
   }
 
@@ -21,7 +22,6 @@ export default async function handler(
       where: { id: id },
       select: {
         id: true,
-        clerkId: true,
         email: true,
         firstName: true,
         lastName: true,

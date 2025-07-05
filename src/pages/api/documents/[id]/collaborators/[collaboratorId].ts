@@ -7,7 +7,7 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    const user = await getUserFromRequest(req);
+    const user = await getUserFromRequest(req, res);
 
     const { id, collaboratorId } = req.query;
     if (typeof id !== "string" || typeof collaboratorId !== "string") {

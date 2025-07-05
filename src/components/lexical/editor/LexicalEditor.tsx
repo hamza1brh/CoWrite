@@ -68,7 +68,6 @@ interface LexicalEditorProps {
     name: string;
     email: string;
     avatarUrl?: string;
-    clerkUserId: string;
   };
   collaborators?: Array<{
     user: {
@@ -76,7 +75,6 @@ interface LexicalEditorProps {
       name: string;
       email: string;
       avatarUrl?: string;
-      clerkUserId: string;
     };
     role: string;
     isOnline: boolean;
@@ -168,16 +166,23 @@ export default function LexicalEditor({
   const [isLinkEditMode, setIsLinkEditMode] = useState<boolean>(false);
   const [websocketUrl, setWebsocketUrl] = useState<string>("");
 
+
+  const providerInitRef = useRef<string | null>(null);
+  const cleanupHandlersRef = useRef<(() => void)[]>([]);
+
   useEffect(() => {
-    if (!documentId) return;
+    if (!documentId || providerInitRef.current === documentId) return;
 
     let isMounted = true;
+    providerInitRef.current = documentId;
 
     const setupProvider = async () => {
       try {
+        console.log(`🔧 Setting up provider for document: ${documentId}`);
         const provider = await createWebsocketProvider(documentId);
 
         if (!isMounted) {
+          console.log(`❌ Component unmounted during setup for ${documentId}`);
           provider.destroy();
           return;
         }
@@ -193,12 +198,13 @@ export default function LexicalEditor({
           const isConnected =
             event.status === "connected" ||
             ("connected" in event && event.connected === true);
+          console.log(`📡 Provider status for ${documentId}:`, event.status);
           setConnected(isConnected);
           onConnectionStatusChange?.(isConnected);
         };
 
         const handleConnectionError = (error: any) => {
-          console.error(`Connection error for ${documentId}:`, error);
+          console.error(`❌ Connection error for ${documentId}:`, error);
           setConnected(false);
           onConnectionStatusChange?.(false);
         };
@@ -206,14 +212,21 @@ export default function LexicalEditor({
         provider.on("status", handleStatus);
         provider.on("connection-error", handleConnectionError);
 
+        
+        cleanupHandlersRef.current = [
+          () => provider.off("status", handleStatus),
+          () => provider.off("connection-error", handleConnectionError),
+        ];
+
         if (isMounted) {
           setYjsProvider(provider);
           setYjsDoc(provider.doc);
           setProviderReady(true);
           onProviderReady?.(provider);
+          console.log(`✅ Provider ready for ${documentId}`);
         }
       } catch (error) {
-        console.error(`Failed to setup provider for ${documentId}:`, error);
+        console.error(`❌ Failed to setup provider for ${documentId}:`, error);
         if (isMounted) {
           setProviderReady(false);
         }
@@ -223,12 +236,25 @@ export default function LexicalEditor({
     setupProvider();
 
     return () => {
+      console.log(`🧹 Cleaning up provider for ${documentId}`);
       isMounted = false;
+
+      // Clean up event handlers first
+      cleanupHandlersRef.current.forEach(cleanup => cleanup());
+      cleanupHandlersRef.current = [];
+
+      // Reset state
       setYjsProvider(null);
       setYjsDoc(null);
       setProviderReady(false);
+      setConnected(false);
+
+      // Clear the init ref so it can be re-initialized if needed
+      if (providerInitRef.current === documentId) {
+        providerInitRef.current = null;
+      }
     };
-  }, [documentId, onProviderReady]);
+  }, [documentId, onProviderReady, onConnectionStatusChange]);
 
   useEffect(() => {
     if (!yjsProvider?.awareness || !currentUser || !providerReady) {
@@ -244,7 +270,7 @@ export default function LexicalEditor({
 
       const enhancedAwareness = {
         ...currentState,
-        
+
         user: {
           id: String(currentUser.id),
           name: currentUser.name,
@@ -264,6 +290,7 @@ export default function LexicalEditor({
       });
 
       hasEnhanced = true;
+      console.log(`👤 Enhanced awareness for user: ${currentUser.email}`);
     };
 
     // Give CollaborationPlugin time to initialize, then enhance
@@ -327,18 +354,19 @@ export default function LexicalEditor({
   const providerFactory = useCallback(
     (id: string, yjsDocMap: Map<string, Y.Doc>) => {
       if (!yjsProvider || !yjsDoc) {
-        console.error("Provider or doc not ready in providerFactory");
+        console.error("❌ Provider or doc not ready in providerFactory");
         throw new Error("Provider or doc not ready");
       }
 
       const existingDoc = yjsDocMap.get(id);
       if (existingDoc && existingDoc !== yjsDoc) {
         console.warn(
-          `Y.Doc conflict detected! Replacing existing doc for ${id}`
+          `⚠️ Y.Doc conflict detected! Replacing existing doc for ${id}`
         );
       }
 
       yjsDocMap.set(id, yjsDoc);
+      console.log(`🏭 Provider factory returning provider for ${id}`);
       return yjsProvider;
     },
     [yjsProvider, yjsDoc]

@@ -7,7 +7,7 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    const user = await getUserFromRequest(req);
+    const user = await getUserFromRequest(req, res);
 
     const { id } = req.query;
     if (typeof id !== "string") {
@@ -161,12 +161,7 @@ export default async function handler(
         },
       });
 
-      console.log(
-        " Collaborator added:",
-        collaborator.user.email,
-        "as",
-        role
-      );
+      console.log(" Collaborator added:", collaborator.user.email, "as", role);
       return res.status(201).json(collaborator);
     }
 

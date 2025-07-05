@@ -8,40 +8,75 @@ export default async function handler(
 ) {
   const { id } = req.query;
 
+  console.log("🔍 DOCUMENT API - Request started", {
+    method: req.method,
+    documentId: id,
+    timestamp: new Date().toISOString(),
+  });
+
   if (!id || typeof id !== "string") {
+    console.log("❌ DOCUMENT API - Invalid document ID:", id);
     return res.status(400).json({ error: "Invalid document ID" });
   }
 
   // Handle GET requests
   if (req.method === "GET") {
     try {
-      const user = await syncUserToDatabase(req);
+      console.log("🔍 DOCUMENT API - Starting GET request for document:", id);
+
+      const user = await syncUserToDatabase(req, res);
+      console.log("✅ DOCUMENT API - User authenticated:", user.email);
+
       const { hasAccess, document } = await checkDocumentPermissions(
         id,
         user,
         false
       );
+      console.log("🔍 DOCUMENT API - Permission check result:", {
+        hasAccess,
+        documentFound: !!document,
+        documentTitle: document?.title,
+      });
 
       if (!document) {
+        console.log("❌ DOCUMENT API - Document not found:", id);
         return res.status(404).json({ error: "Document not found" });
       }
 
       if (!hasAccess) {
+        console.log(
+          "❌ DOCUMENT API - Access denied for user:",
+          user.email,
+          "to document:",
+          id
+        );
         return res.status(403).json({ error: "Access denied" });
       }
 
+      console.log("✅ DOCUMENT API - Returning document:", document.title);
       return res.json(document);
     } catch (error) {
-      console.error("Error fetching document:", error);
-      return res.status(500).json({ error: "Internal server error" });
+      console.error("❌ DOCUMENT API - Error in GET handler:", error);
+      console.error(
+        "❌ DOCUMENT API - Error stack:",
+        error instanceof Error ? error.stack : "No stack trace"
+      );
+      return res.status(500).json({
+        error: "Internal server error",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
   // Handle PUT requests for saving documents (metadata only - Yjs handles content)
   if (req.method === "PUT") {
     try {
+      console.log("🔍 DOCUMENT API - Starting PUT request for document:", id);
+
       const { content, title } = req.body;
-      const user = await syncUserToDatabase(req);
+      const user = await syncUserToDatabase(req, res);
+      console.log("✅ DOCUMENT API - User authenticated for PUT:", user.email);
+
       const { hasAccess, document } = await checkDocumentPermissions(
         id,
         user,
@@ -49,10 +84,17 @@ export default async function handler(
       );
 
       if (!document) {
+        console.log("❌ DOCUMENT API - Document not found for PUT:", id);
         return res.status(404).json({ error: "Document not found" });
       }
 
       if (!hasAccess) {
+        console.log(
+          "❌ DOCUMENT API - No edit permissions for user:",
+          user.email,
+          "to document:",
+          id
+        );
         return res.status(403).json({ error: "No edit permissions" });
       }
 
@@ -71,6 +113,7 @@ export default async function handler(
       // Only allow title updates
       if (title !== undefined) {
         updateData.title = title;
+        console.log("🔍 DOCUMENT API - Updating title to:", title);
       }
 
       const updatedDocument = await prisma.document.update({
@@ -81,10 +124,18 @@ export default async function handler(
       console.log(`✅ Document metadata updated: ${id}`);
       return res.json({ success: true, document: updatedDocument });
     } catch (error) {
-      console.error("Error saving document:", error);
-      return res.status(500).json({ error: "Failed to save document" });
+      console.error("❌ DOCUMENT API - Error in PUT handler:", error);
+      console.error(
+        "❌ DOCUMENT API - Error stack:",
+        error instanceof Error ? error.stack : "No stack trace"
+      );
+      return res.status(500).json({
+        error: "Failed to save document",
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
+  console.log("❌ DOCUMENT API - Method not allowed:", req.method);
   return res.status(405).json({ error: "Method not allowed" });
 }
