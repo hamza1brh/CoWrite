@@ -97,6 +97,9 @@ function EditableStateController({
     const isEditable =
       !readOnly && (userRole === "owner" || userRole === "editor");
 
+    console.log(
+      `🔧 Setting editor editable: ${isEditable} (readOnly: ${readOnly}, userRole: ${userRole})`
+    );
     editor.setEditable(isEditable);
   }, [editor, readOnly, userRole]);
 
@@ -383,8 +386,8 @@ export default function LexicalEditor({
 
   // Generate a stable key to prevent unnecessary re-mounting
   const editorKey = useMemo(() => {
-    return `lexical-${documentId}-${userRole}-${readOnly}`;
-  }, [documentId, userRole, readOnly]);
+    return `lexical-${documentId}-${userRole}`;
+  }, [documentId, userRole]);
 
   return (
     <div
@@ -403,10 +406,7 @@ export default function LexicalEditor({
         />
       )}
 
-      <LexicalComposer 
-        key={editorKey}
-        initialConfig={editorConfig}
-      >
+      <LexicalComposer key={editorKey} initialConfig={editorConfig}>
         <EditableStateController readOnly={readOnly} userRole={userRole} />
 
         {isCollaborative &&

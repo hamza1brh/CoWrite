@@ -138,6 +138,7 @@ export default function DocumentEditor() {
   const sessionRef = useRef<any>(null);
   const renderCountRef = useRef(0);
   const lastStateRef = useRef<any>(null);
+  const editorStateRef = useRef<any>(null);
 
   // Online users tracking
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
@@ -591,6 +592,9 @@ export default function DocumentEditor() {
       try {
         const contentString = JSON.stringify(editorState);
 
+        // Store the current editor state
+        editorStateRef.current = editorState;
+
         // Skip if this is the initial load and content hasn't changed
         if (
           isInitialLoadRef.current &&
@@ -773,7 +777,7 @@ export default function DocumentEditor() {
                           document.content !==
                             JSON.stringify(DEFAULT_EDITOR_STATE)
                             ? JSON.parse(document.content)
-                            : null
+                            : editorStateRef.current || null
                         }
                         onContentChange={debouncedContentChange}
                         userRole={userRole}
