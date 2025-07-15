@@ -394,7 +394,7 @@ export default function LexicalEditor({
       ref={containerRef}
       className={cn("relative", !canEdit && "opacity-90", className)}
     >
-      {currentUser && (
+      {/* {currentUser && (
         <UserControlPanel
           currentUser={currentUser}
           connected={connected}
@@ -404,7 +404,7 @@ export default function LexicalEditor({
           yjsDoc={yjsDoc}
           websocketUrl={websocketUrl}
         />
-      )}
+      )} */}
 
       <LexicalComposer key={editorKey} initialConfig={editorConfig}>
         <EditableStateController readOnly={readOnly} userRole={userRole} />
