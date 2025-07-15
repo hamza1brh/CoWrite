@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  Component,
+  ReactNode,
+} from "react";
 import { useRouter } from "next/router";
 import { AppSidebar } from "@/components/app-sidebar";
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
@@ -72,6 +80,33 @@ interface ApiCollaborator {
   };
 }
 
+// Simple Error Boundary Component
+class ErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error, errorInfo: any) {
+    console.error("Editor Error Boundary caught an error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+
+    return this.props.children;
+  }
+}
+
 export default function DocumentEditor() {
   const router = useRouter();
   const { id } = router.query;
@@ -99,11 +134,88 @@ export default function DocumentEditor() {
   // Content refs
   const lastSavedContentRef = useRef<string>("");
   const isInitialLoadRef = useRef(true);
+  const hasNavigatedRef = useRef(false);
+  const sessionRef = useRef<any>(null);
+  const renderCountRef = useRef(0);
+  const lastStateRef = useRef<any>(null);
 
   // Online users tracking
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [yjsProvider, setYjsProvider] = useState<any>(null);
   const [connected, setConnected] = useState<boolean>(false);
+
+  // Debug logging
+  renderCountRef.current += 1;
+
+  // Only log renders when there are actual changes
+  const hasSignificantChanges = useMemo(() => {
+    const currentState = {
+      id,
+      sessionId: session?.user?.id,
+      isLoaded,
+      hasDatabaseUser: !!databaseUser,
+      documentId: document?.id,
+    };
+
+    const lastState =
+      renderCountRef.current === 1 ? null : lastStateRef.current;
+    lastStateRef.current = currentState;
+
+    if (!lastState) return true; // First render
+
+    return JSON.stringify(currentState) !== JSON.stringify(lastState);
+  }, [id, session?.user?.id, isLoaded, databaseUser, document?.id]);
+
+  if (hasSignificantChanges) {
+    console.log(`🔄 EDITOR RENDER #${renderCountRef.current}`, {
+      id,
+      sessionExists: !!session?.user,
+      sessionId: session?.user?.id,
+      isLoaded,
+      hasDatabaseUser: !!databaseUser,
+      documentId: document?.id,
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Track session changes
+  useEffect(() => {
+    const oldSessionId = sessionRef.current?.user?.id;
+    const newSessionId = session?.user?.id;
+
+    if (oldSessionId !== newSessionId) {
+      console.log("🔄 SESSION CHANGED", {
+        oldSession: oldSessionId,
+        newSession: newSessionId,
+        timestamp: new Date().toISOString(),
+      });
+      sessionRef.current = session;
+    } else if (session?.user?.id && !sessionRef.current) {
+      // Only log the first session initialization
+      console.log("🔄 SESSION INITIALIZED", {
+        sessionId: session.user.id,
+        timestamp: new Date().toISOString(),
+      });
+      sessionRef.current = session;
+    }
+  }, [session?.user?.id]);
+
+  // Stable session check to prevent unnecessary re-renders
+  const stableSession = useMemo(() => {
+    return session?.user
+      ? {
+          id: session.user.id,
+          email: session.user.email,
+          name: session.user.name,
+          image: session.user.image,
+        }
+      : null;
+  }, [
+    session?.user?.id,
+    session?.user?.email,
+    session?.user?.name,
+    session?.user?.image,
+  ]);
 
   const transformCollaboratorsForHeader = useCallback(
     (apiCollaborators: ApiCollaborator[]): Collaborator[] => {
@@ -171,6 +283,32 @@ export default function DocumentEditor() {
     return "viewer";
   }, [document, databaseUser, collaborators]);
 
+  // Memoize the entire component state to prevent unnecessary re-renders
+  const componentState = useMemo(
+    () => ({
+      id,
+      isLoaded,
+      stableSession,
+      databaseUser,
+      document,
+      userRole,
+      mode,
+      loading,
+      error,
+    }),
+    [
+      id,
+      isLoaded,
+      stableSession,
+      databaseUser,
+      document,
+      userRole,
+      mode,
+      loading,
+      error,
+    ]
+  );
+
   useEffect(() => {
     if (userRole === "owner" || userRole === "editor") {
       setMode("editing");
@@ -180,7 +318,7 @@ export default function DocumentEditor() {
   }, [userRole]);
 
   useEffect(() => {
-    if (!isLoaded || !session?.user) return;
+    if (!isLoaded || !stableSession) return;
 
     const fetchDatabaseUser = async () => {
       try {
@@ -205,28 +343,31 @@ export default function DocumentEditor() {
     };
 
     fetchDatabaseUser();
-  }, [isLoaded, session]);
+  }, [isLoaded, stableSession]);
 
   useEffect(() => {
-    if (isLoaded && !session?.user) {
+    if (isLoaded && !stableSession && !hasNavigatedRef.current) {
+      console.log("🔄 NAVIGATING TO WELCOME - No session");
+      hasNavigatedRef.current = true;
       router.replace("/welcome");
     }
-  }, [isLoaded, session, router]);
+  }, [isLoaded, stableSession, router]);
 
   useEffect(() => {
     console.log("🔍 EDITOR - Document fetch conditions:", {
       hasId: !!id,
       idType: typeof id,
       isLoaded,
-      hasSession: !!session?.user,
+      hasSession: !!stableSession,
       hasDatabaseUser: !!databaseUser,
+      renderCount: renderCountRef.current,
     });
 
     if (
       !id ||
       typeof id !== "string" ||
       !isLoaded ||
-      !session?.user ||
+      !stableSession ||
       !databaseUser
     ) {
       console.log("🔍 EDITOR - Not ready to fetch document yet");
@@ -315,7 +456,7 @@ export default function DocumentEditor() {
     };
 
     fetchData();
-  }, [id, isLoaded, session, databaseUser]);
+  }, [id, isLoaded, stableSession, databaseUser]);
 
   const handleAddCollaborator = async (
     email: string,
@@ -477,6 +618,20 @@ export default function DocumentEditor() {
     [document]
   );
 
+  // Debounced content change handler to prevent excessive re-renders
+  const debouncedContentChange = useCallback(
+    (() => {
+      let timeoutId: NodeJS.Timeout;
+      return (editorState: any) => {
+        clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          handleContentChange(editorState);
+        }, 100);
+      };
+    })(),
+    [handleContentChange]
+  );
+
   const handleAddComment = (newCommentData: ApiComment) => {
     setComments(prev => [newCommentData, ...prev]);
   };
@@ -519,7 +674,12 @@ export default function DocumentEditor() {
   // Calculate unread comments count
   const unreadCommentsCount = comments.filter(c => !c.resolved).length;
 
-  if (!isLoaded || !session?.user || !databaseUser || loading) {
+  // Generate a stable key for the main component to prevent unnecessary re-mounting
+  const componentKey = useMemo(() => {
+    return `editor-${document?.id || "loading"}-${stableSession?.id || "no-session"}-${userRole}`;
+  }, [document?.id, stableSession?.id, userRole]);
+
+  if (!isLoaded || !stableSession || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -553,64 +713,152 @@ export default function DocumentEditor() {
   const isReadOnly = userRole === "viewer" || mode === "viewing";
 
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
-          <EditorHeader
-            documentTitle={document.title}
-            onTitleChange={handleTitleChange}
-            collaborators={transformCollaboratorsForHeader(collaborators)}
-            showAI={showAI}
-            showComments={showComments}
-            onToggleAI={() => setShowAI(!showAI)}
-            onToggleComments={() => setShowComments(!showComments)}
-            unreadCommentsCount={unreadCommentsCount}
-            mode={mode}
-            userRole={userRole}
-            onModeChange={handleModeChange}
-            isDocumentOwner={userRole === "owner"}
-            onAddCollaborator={handleAddCollaborator}
-            onRemoveCollaborator={handleRemoveCollaborator}
-            onChangeRole={handleChangeRole}
-            showCollaborators={showCollaborators}
-            onToggleCollaborators={() =>
-              setShowCollaborators(!showCollaborators)
-            }
-            provider={yjsProvider}
-          />
+    <div key={componentKey}>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <div className="dark:dark-gradient-bg flex min-h-screen flex-col bg-slate-50">
+            <EditorHeader
+              documentTitle={document.title}
+              onTitleChange={handleTitleChange}
+              collaborators={transformCollaboratorsForHeader(collaborators)}
+              showAI={showAI}
+              showComments={showComments}
+              onToggleAI={() => setShowAI(!showAI)}
+              onToggleComments={() => setShowComments(!showComments)}
+              unreadCommentsCount={unreadCommentsCount}
+              mode={mode}
+              userRole={userRole}
+              onModeChange={handleModeChange}
+              isDocumentOwner={userRole === "owner"}
+              onAddCollaborator={handleAddCollaborator}
+              onRemoveCollaborator={handleRemoveCollaborator}
+              onChangeRole={handleChangeRole}
+              showCollaborators={showCollaborators}
+              onToggleCollaborators={() =>
+                setShowCollaborators(!showCollaborators)
+              }
+              provider={yjsProvider}
+            />
 
-          <div className="flex flex-1 overflow-hidden">
-            <div className="flex flex-1 flex-col">
-              <div className="relative flex-1 overflow-auto p-4 sm:p-6">
-                <div className="mx-auto max-w-3xl rounded-lg border border-slate-200/30 dark:border-slate-700/20 sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl">
-                  <LexicalEditor
-                    showToolbar={mode === "editing"}
-                    className="min-h-full"
-                    documentId={document.id}
-                    readOnly={isReadOnly}
-                    initialContent={
-                      document.content &&
-                      document.content !== JSON.stringify(DEFAULT_EDITOR_STATE)
-                        ? JSON.parse(document.content)
-                        : null
-                    }
-                    onContentChange={handleContentChange}
-                    userRole={userRole}
-                    currentUser={currentUserForLexical}
-                    collaborators={collaboratorsForLexical}
-                    onlineUsers={onlineUsers}
-                    onProviderReady={handleProviderReady}
-                    onConnectionStatusChange={handleConnectionStatusChange}
-                  />
+            <div className="flex flex-1 overflow-hidden">
+              <div className="flex flex-1 flex-col">
+                <div className="relative flex-1 overflow-auto p-4 sm:p-6">
+                  <div className="mx-auto max-w-3xl rounded-lg border border-slate-200/30 dark:border-slate-700/20 sm:max-w-4xl lg:max-w-5xl xl:max-w-6xl">
+                    <ErrorBoundary
+                      fallback={
+                        <div className="flex min-h-[400px] items-center justify-center">
+                          <div className="text-center">
+                            <p className="mb-4 text-lg text-red-600">
+                              Editor encountered an error. Please refresh the
+                              page.
+                            </p>
+                            <button
+                              onClick={() => window.location.reload()}
+                              className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                            >
+                              Refresh Page
+                            </button>
+                          </div>
+                        </div>
+                      }
+                    >
+                      <LexicalEditor
+                        showToolbar={mode === "editing"}
+                        className="min-h-full"
+                        documentId={document.id}
+                        readOnly={isReadOnly}
+                        initialContent={
+                          document.content &&
+                          document.content !==
+                            JSON.stringify(DEFAULT_EDITOR_STATE)
+                            ? JSON.parse(document.content)
+                            : null
+                        }
+                        onContentChange={debouncedContentChange}
+                        userRole={userRole}
+                        currentUser={currentUserForLexical}
+                        collaborators={collaboratorsForLexical}
+                        onlineUsers={onlineUsers}
+                        onProviderReady={handleProviderReady}
+                        onConnectionStatusChange={handleConnectionStatusChange}
+                      />
+                    </ErrorBoundary>
+                  </div>
                 </div>
+              </div>
+
+              {/* Desktop Panels */}
+              <div className="hidden lg:flex">
+                {showCollaborators && (
+                  <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                    <CollaboratorPanel
+                      isOpen={true}
+                      onClose={() => setShowCollaborators(false)}
+                      collaborators={transformCollaboratorsForHeader(
+                        collaborators
+                      )}
+                      currentUserRole={userRole}
+                      provider={yjsProvider}
+                      onAddCollaborator={handleAddCollaborator}
+                      onRemoveCollaborator={handleRemoveCollaborator}
+                      onChangeRole={handleChangeRole}
+                    />
+                  </div>
+                )}
+
+                {showAI && (
+                  <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                    <AiAssistantPanel
+                      isOpen={true}
+                      onClose={() => setShowAI(false)}
+                      suggestions={aiSuggestions}
+                      onRefreshSuggestions={async () => {
+                        if (!document?.id) return;
+                        try {
+                          // TODO: Implement real AI suggestions API
+                          setAiSuggestions([]);
+                        } catch (err) {
+                          console.error(
+                            "Failed to refresh AI suggestions:",
+                            err
+                          );
+                        }
+                      }}
+                    />
+                  </div>
+                )}
+
+                {showComments && (
+                  <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                    <CommentsPanel
+                      isOpen={true}
+                      onClose={() => setShowComments(false)}
+                      comments={comments}
+                      documentId={document.id}
+                      onAddComment={handleAddComment}
+                      onResolveComment={handleResolveComment}
+                    />
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Desktop Panels */}
-            <div className="hidden lg:flex">
+            {/* Mobile Panels */}
+            <div className="lg:hidden">
+              {(showAI || showComments || showCollaborators) && (
+                <div
+                  className="fixed inset-0 z-50 bg-black/50"
+                  onClick={() => {
+                    setShowAI(false);
+                    setShowComments(false);
+                    setShowCollaborators(false);
+                  }}
+                />
+              )}
+
               {showCollaborators && (
-                <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
                   <CollaboratorPanel
                     isOpen={true}
                     onClose={() => setShowCollaborators(false)}
@@ -627,7 +875,7 @@ export default function DocumentEditor() {
               )}
 
               {showAI && (
-                <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
                   <AiAssistantPanel
                     isOpen={true}
                     onClose={() => setShowAI(false)}
@@ -646,7 +894,7 @@ export default function DocumentEditor() {
               )}
 
               {showComments && (
-                <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
+                <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
                   <CommentsPanel
                     isOpen={true}
                     onClose={() => setShowComments(false)}
@@ -659,69 +907,8 @@ export default function DocumentEditor() {
               )}
             </div>
           </div>
-
-          {/* Mobile Panels */}
-          <div className="lg:hidden">
-            {(showAI || showComments || showCollaborators) && (
-              <div
-                className="fixed inset-0 z-50 bg-black/50"
-                onClick={() => {
-                  setShowAI(false);
-                  setShowComments(false);
-                  setShowCollaborators(false);
-                }}
-              />
-            )}
-
-            {showCollaborators && (
-              <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
-                <CollaboratorPanel
-                  isOpen={true}
-                  onClose={() => setShowCollaborators(false)}
-                  collaborators={transformCollaboratorsForHeader(collaborators)}
-                  currentUserRole={userRole}
-                  provider={yjsProvider}
-                  onAddCollaborator={handleAddCollaborator}
-                  onRemoveCollaborator={handleRemoveCollaborator}
-                  onChangeRole={handleChangeRole}
-                />
-              </div>
-            )}
-
-            {showAI && (
-              <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
-                <AiAssistantPanel
-                  isOpen={true}
-                  onClose={() => setShowAI(false)}
-                  suggestions={aiSuggestions}
-                  onRefreshSuggestions={async () => {
-                    if (!document?.id) return;
-                    try {
-                      // TODO: Implement real AI suggestions API
-                      setAiSuggestions([]);
-                    } catch (err) {
-                      console.error("Failed to refresh AI suggestions:", err);
-                    }
-                  }}
-                />
-              </div>
-            )}
-
-            {showComments && (
-              <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
-                <CommentsPanel
-                  isOpen={true}
-                  onClose={() => setShowComments(false)}
-                  comments={comments}
-                  documentId={document.id}
-                  onAddComment={handleAddComment}
-                  onResolveComment={handleResolveComment}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      </SidebarInset>
-    </SidebarProvider>
+        </SidebarInset>
+      </SidebarProvider>
+    </div>
   );
 }

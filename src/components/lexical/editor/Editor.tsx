@@ -17,7 +17,7 @@ import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { TRANSFORMERS } from "@lexical/markdown";
 import { LexicalErrorBoundary } from "@lexical/react/LexicalErrorBoundary";
 import { useLexicalEditable } from "@lexical/react/useLexicalEditable";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, memo } from "react";
 
 import InitialContentPlugin from "./InitialContentPlugin";
 import FloatingTextFormatToolbarPlugin from "../plugins/FloatingTextFormatToolbarPlugin";
@@ -34,7 +34,7 @@ interface EditorContentProps {
   isCollaborative?: boolean;
 }
 
-export default function Editor({
+const Editor = memo(function Editor({
   floatingAnchorElem: externalFloatingAnchorElem,
   isSmallWidthViewport: externalIsSmallWidthViewport,
   onRef: externalOnRef,
@@ -69,14 +69,26 @@ export default function Editor({
     };
   }, []);
 
-  const onRef = (floatingAnchorElem: HTMLDivElement) => {
-    if (floatingAnchorElem !== null) {
-      setFloatingAnchorElem(floatingAnchorElem);
-    }
-    if (externalOnRef) {
-      externalOnRef(floatingAnchorElem);
-    }
-  };
+  const onRef = useCallback(
+    (floatingAnchorElem: HTMLDivElement) => {
+      if (floatingAnchorElem !== null) {
+        setFloatingAnchorElem(floatingAnchorElem);
+      }
+      if (externalOnRef) {
+        externalOnRef(floatingAnchorElem);
+      }
+    },
+    [externalOnRef]
+  );
+
+  const handleContentChange = useCallback(
+    (editorState: any) => {
+      if (onContentChange) {
+        onContentChange(editorState);
+      }
+    },
+    [onContentChange]
+  );
 
   return (
     <div className="relative">
@@ -99,7 +111,7 @@ export default function Editor({
         placeholder={null}
         ErrorBoundary={LexicalErrorBoundary}
       />
-      {onContentChange && <OnChangePlugin onChange={onContentChange} />}
+      {onContentChange && <OnChangePlugin onChange={handleContentChange} />}
       <AutoFocusPlugin />
       <HashtagPlugin />
       <LinkPlugin />
@@ -119,4 +131,6 @@ export default function Editor({
       )}
     </div>
   );
-}
+});
+
+export default Editor;

@@ -166,9 +166,15 @@ export default function LexicalEditor({
   const [isLinkEditMode, setIsLinkEditMode] = useState<boolean>(false);
   const [websocketUrl, setWebsocketUrl] = useState<string>("");
 
-
   const providerInitRef = useRef<string | null>(null);
   const cleanupHandlersRef = useRef<(() => void)[]>([]);
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!documentId || providerInitRef.current === documentId) return;
@@ -181,7 +187,7 @@ export default function LexicalEditor({
         console.log(`🔧 Setting up provider for document: ${documentId}`);
         const provider = await createWebsocketProvider(documentId);
 
-        if (!isMounted) {
+        if (!isMounted || !isMountedRef.current) {
           console.log(`❌ Component unmounted during setup for ${documentId}`);
           provider.destroy();
           return;
@@ -199,26 +205,29 @@ export default function LexicalEditor({
             event.status === "connected" ||
             ("connected" in event && event.connected === true);
           console.log(`📡 Provider status for ${documentId}:`, event.status);
-          setConnected(isConnected);
-          onConnectionStatusChange?.(isConnected);
+          if (isMounted && isMountedRef.current) {
+            setConnected(isConnected);
+            onConnectionStatusChange?.(isConnected);
+          }
         };
 
         const handleConnectionError = (error: any) => {
           console.error(`❌ Connection error for ${documentId}:`, error);
-          setConnected(false);
-          onConnectionStatusChange?.(false);
+          if (isMounted && isMountedRef.current) {
+            setConnected(false);
+            onConnectionStatusChange?.(false);
+          }
         };
 
         provider.on("status", handleStatus);
         provider.on("connection-error", handleConnectionError);
 
-        
         cleanupHandlersRef.current = [
           () => provider.off("status", handleStatus),
           () => provider.off("connection-error", handleConnectionError),
         ];
 
-        if (isMounted) {
+        if (isMounted && isMountedRef.current) {
           setYjsProvider(provider);
           setYjsDoc(provider.doc);
           setProviderReady(true);
@@ -227,7 +236,7 @@ export default function LexicalEditor({
         }
       } catch (error) {
         console.error(`❌ Failed to setup provider for ${documentId}:`, error);
-        if (isMounted) {
+        if (isMounted && isMountedRef.current) {
           setProviderReady(false);
         }
       }
@@ -264,7 +273,7 @@ export default function LexicalEditor({
     let hasEnhanced = false;
 
     const enhanceAwareness = () => {
-      if (hasEnhanced) return;
+      if (hasEnhanced || !isMountedRef.current) return;
 
       const currentState = yjsProvider.awareness.getLocalState();
 
@@ -372,6 +381,11 @@ export default function LexicalEditor({
     [yjsProvider, yjsDoc]
   );
 
+  // Generate a stable key to prevent unnecessary re-mounting
+  const editorKey = useMemo(() => {
+    return `lexical-${documentId}-${userRole}-${readOnly}`;
+  }, [documentId, userRole, readOnly]);
+
   return (
     <div
       ref={containerRef}
@@ -389,7 +403,10 @@ export default function LexicalEditor({
         />
       )}
 
-      <LexicalComposer initialConfig={editorConfig}>
+      <LexicalComposer 
+        key={editorKey}
+        initialConfig={editorConfig}
+      >
         <EditableStateController readOnly={readOnly} userRole={userRole} />
 
         {isCollaborative &&
