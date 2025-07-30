@@ -7,6 +7,7 @@ import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/router";
+import { useCurrentUser } from "@/hooks/useCurrentUser";
 
 // Components
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
@@ -40,6 +41,7 @@ function transformDocumentForCard(doc: DocumentWithOwner): DocumentCardData {
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
+  const { user: currentUser, loading: userLoading } = useCurrentUser();
   const isLoaded = status !== "loading";
   const user = session?.user;
   const router = useRouter();
@@ -148,7 +150,7 @@ export default function Dashboard() {
     }
   };
 
-  if (!isLoaded || !user) {
+  if (!isLoaded || !user || userLoading || !currentUser) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-slate-900 dark:to-slate-800">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -181,7 +183,7 @@ export default function Dashboard() {
         <AppSidebar />
         <SidebarInset>
           <div className="light-gradient-bg dark:dark-gradient-bg min-h-screen">
-            <DashboardHeader userName={user?.name || "User"} />
+            <DashboardHeader userName={currentUser?.name || "User"} />
             <main className="container mx-auto px-6 py-8">
               <div className="flex h-64 items-center justify-center">
                 <div className="text-center">
@@ -203,7 +205,7 @@ export default function Dashboard() {
       <AppSidebar />
       <SidebarInset>
         <div className="light-gradient-bg dark:dark-gradient-bg min-h-screen">
-          <DashboardHeader userName={user?.name || "User"} />
+          <DashboardHeader userName={currentUser?.name || "User"} />
 
           {/* Main Content */}
           <main className="container mx-auto px-6 py-8">
@@ -215,7 +217,7 @@ export default function Dashboard() {
               transition={{ duration: 0.6 }}
             >
               <h2 className="mb-4 text-4xl font-bold text-slate-900 dark:text-white">
-                Welcome back, {user?.name || "User"}
+                Welcome back, {currentUser?.name || "User"}
               </h2>
               <p className="mb-8 text-xl text-slate-600 dark:text-slate-300">
                 Continue working on your documents or start something new

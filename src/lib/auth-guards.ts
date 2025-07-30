@@ -6,6 +6,7 @@ import { prisma } from "./prisma";
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  name: string | null;
   firstName: string | null;
   lastName: string | null;
   imageUrl: string | null;
@@ -69,6 +70,7 @@ export async function requireAuthenticatedUser(
   return {
     id: user.id,
     email: user.email || "",
+    name: user.name,
     firstName: user.firstName,
     lastName: user.lastName,
     imageUrl: user.image,

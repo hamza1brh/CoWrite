@@ -73,6 +73,7 @@ interface ApiCollaborator {
   userId: string;
   user: {
     id: string;
+    name: string | null;
     firstName: string;
     lastName: string;
     email: string;
@@ -223,12 +224,16 @@ export default function DocumentEditor() {
       return apiCollaborators.map(collab => {
         const role = collab.role.toLowerCase() as "owner" | "editor" | "viewer";
 
+        // Use firstName + lastName if available, otherwise name, otherwise email
+        const displayName =
+          collab.user.firstName && collab.user.lastName
+            ? `${collab.user.firstName} ${collab.user.lastName}`.trim()
+            : (collab.user as any).name || collab.user.email;
+
         return {
           id: collab.id,
           userId: String(collab.user?.id ?? collab.userId ?? ""),
-          name:
-            `${collab.user.firstName} ${collab.user.lastName}`.trim() ||
-            collab.user.email,
+          name: displayName,
           email: collab.user.email,
           avatar: collab.user.imageUrl,
           status: "offline" as const,
@@ -650,29 +655,40 @@ export default function DocumentEditor() {
 
   const currentUserForLexical = useMemo(() => {
     if (!databaseUser) return undefined;
+
+    // Use name if firstName/lastName are null, otherwise construct from parts
+    const displayName =
+      databaseUser.firstName && databaseUser.lastName
+        ? `${databaseUser.firstName} ${databaseUser.lastName}`.trim()
+        : databaseUser.name || databaseUser.email;
+
     return {
       id: databaseUser.id,
-      name:
-        `${databaseUser.firstName} ${databaseUser.lastName}`.trim() ||
-        databaseUser.email,
+      name: displayName,
       email: databaseUser.email,
       avatarUrl: databaseUser.imageUrl,
     };
   }, [databaseUser]);
 
   const collaboratorsForLexical = useMemo(() => {
-    return collaborators.map(collab => ({
-      user: {
-        id: String(collab.user?.id ?? collab.userId ?? ""),
-        name:
-          `${collab.user.firstName} ${collab.user.lastName}`.trim() ||
-          collab.user.email,
-        email: collab.user.email,
-        avatarUrl: collab.user.imageUrl,
-      },
-      role: collab.role.toLowerCase(),
-      isOnline: false,
-    }));
+    return collaborators.map(collab => {
+      // Use firstName + lastName if available, otherwise name, otherwise email
+      const displayName =
+        collab.user.firstName && collab.user.lastName
+          ? `${collab.user.firstName} ${collab.user.lastName}`.trim()
+          : collab.user.name || collab.user.email;
+
+      return {
+        user: {
+          id: String(collab.user?.id ?? collab.userId ?? ""),
+          name: displayName,
+          email: collab.user.email,
+          avatarUrl: collab.user.imageUrl,
+        },
+        role: collab.role.toLowerCase(),
+        isOnline: false,
+      };
+    });
   }, [collaborators]);
 
   // Calculate unread comments count
