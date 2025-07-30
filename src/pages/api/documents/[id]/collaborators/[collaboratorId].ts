@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { getUserFromRequest } from "@/lib/auth";
+import { requireAuthenticatedUser } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
@@ -7,7 +7,7 @@ export default async function handler(
   res: NextApiResponse
 ) {
   try {
-    const user = await getUserFromRequest(req, res);
+    const user = await requireAuthenticatedUser(req, res);
 
     const { id, collaboratorId } = req.query;
     if (typeof id !== "string" || typeof collaboratorId !== "string") {
@@ -68,6 +68,7 @@ export default async function handler(
           user: {
             select: {
               id: true,
+              name: true,
               firstName: true,
               lastName: true,
               email: true,

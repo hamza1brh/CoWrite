@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { getUserFromRequest } from "@/lib/auth";
+import { requireAuthenticatedUser } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
@@ -14,7 +14,7 @@ export default async function handler(
       req.query.id
     );
 
-    const user = await getUserFromRequest(req, res);
+    const user = await requireAuthenticatedUser(req, res);
     console.log("🔍 Authenticated user:", {
       id: user.id,
       email: user.email,
@@ -113,7 +113,6 @@ export default async function handler(
           error: "User not synced to database. Please refresh and try again.",
         });
       }
-
 
       console.error("❌ Full error details:", {
         message: error.message,

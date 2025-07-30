@@ -12,13 +12,19 @@ export default async function handler(
   try {
     const user = await requireAuthenticatedUser(req, res);
 
+    // Use name if firstName/lastName are null, otherwise construct from parts
+    const displayName =
+      user.firstName && user.lastName
+        ? `${user.firstName} ${user.lastName}`.trim()
+        : user.name || user.email;
+
     res.json({
       id: user.id,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
       imageUrl: user.imageUrl,
-      name: `${user.firstName} ${user.lastName}`.trim(),
+      name: displayName,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
       emailVerified: user.emailVerified,
