@@ -120,7 +120,7 @@ export default function Welcome() {
           </div>
 
           <p className="mt-4 text-sm text-slate-500 dark:text-slate-400">
-            Free to get started • No credit card required
+            Secure OAuth authentication • No passwords to remember
           </p>
         </motion.div>
 

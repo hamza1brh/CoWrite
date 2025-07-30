@@ -15,41 +15,22 @@ interface SignInProps {
 }
 
 export default function SignInPage({ providers }: SignInProps) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  const handleCredentialsSignIn = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleOAuthSignIn = async (providerId: string) => {
     setIsLoading(true);
     try {
-      const result = await signIn("credentials", {
-        email,
-        password,
+      console.log(`🔄 Starting OAuth sign-in with ${providerId}`);
+      const result = await signIn(providerId, {
         callbackUrl: "/",
-        redirect: false,
+        redirect: true,
       });
-
-      if (result?.error) {
-        alert(result.error);
-      } else if (result?.ok) {
-        // Force redirect on successful sign in
-        router.push("/");
-      }
+      console.log(`🔄 SignIn result:`, result);
     } catch (error) {
-      console.error("Sign in error:", error);
-      alert("Sign in failed. Please try again.");
-    } finally {
+      console.error("OAuth sign in error:", error);
       setIsLoading(false);
     }
-  };
-
-  const handleOAuthSignIn = (providerId: string) => {
-    signIn(providerId, {
-      callbackUrl: "/",
-      redirect: true,
-    });
   };
 
   return (
@@ -79,60 +60,28 @@ export default function SignInPage({ providers }: SignInProps) {
                   variant="outline"
                   className="w-full"
                   onClick={() => handleOAuthSignIn(provider.id)}
+                  disabled={isLoading}
                 >
-                  Sign in with {provider.name}
+                  {isLoading
+                    ? "Signing in..."
+                    : `Sign in with ${provider.name}`}
                 </Button>
               );
             })}
 
-            {/* Credentials Form */}
-            {providers?.credentials && (
-              <>
-                {Object.values(providers || {}).length > 1 && (
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-background px-2 text-muted-foreground">
-                        Or continue with email
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <form onSubmit={handleCredentialsSignIn} className="space-y-4">
-                  <div>
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="Enter your email"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      required
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Signing in..." : "Sign In"}
-                  </Button>
-                  <p className="text-center text-xs text-muted-foreground">
-                    New users will be automatically created with the provided
-                    email
-                  </p>
-                </form>
-              </>
+            {/* Show message if no OAuth providers are configured */}
+            {Object.values(providers || {}).filter(
+              (p: any) => p.id !== "credentials"
+            ).length === 0 && (
+              <div className="py-8 text-center">
+                <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                  No authentication providers are currently configured.
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-500">
+                  Please contact your administrator or configure OAuth
+                  providers.
+                </p>
+              </div>
             )}
 
             <div className="text-center">

@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { requireSyncedUser } from "@/lib/user-sync";
+import { requireAuthenticatedUser } from "@/lib/auth-guards";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
@@ -18,8 +18,17 @@ export default async function handler(
 }
 
 async function handleGetDocuments(req: NextApiRequest, res: NextApiResponse) {
+  console.log("🔍 DOCUMENTS GET - Starting request");
+  console.log("🔍 DOCUMENTS GET - Has cookies:", !!req.cookies);
+  console.log(
+    "🔍 DOCUMENTS GET - Cookie names:",
+    Object.keys(req.cookies || {})
+  );
+
   try {
-    const user = await requireSyncedUser(req, res);
+    console.log("🔍 DOCUMENTS GET - Calling requireAuthenticatedUser");
+    const user = await requireAuthenticatedUser(req, res);
+    console.log("✅ DOCUMENTS GET - User authenticated:", user.email);
 
     const documents = await prisma.document.findMany({
       where: {
@@ -70,6 +79,17 @@ async function handleGetDocuments(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json(documents);
   } catch (error) {
     console.error("Error fetching documents:", error);
+
+    // Handle authentication errors specifically
+    if (
+      error instanceof Error &&
+      (error.message.includes("Authentication required") ||
+        error.message.includes("Invalid session") ||
+        error.message.includes("User not found"))
+    ) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
     return res.status(500).json({
       error:
         error instanceof Error ? error.message : "Failed to fetch documents",
@@ -78,8 +98,17 @@ async function handleGetDocuments(req: NextApiRequest, res: NextApiResponse) {
 }
 
 async function handleCreateDocument(req: NextApiRequest, res: NextApiResponse) {
+  console.log("🔍 DOCUMENTS POST - Starting create request");
+  console.log("🔍 DOCUMENTS POST - Has cookies:", !!req.cookies);
+  console.log(
+    "🔍 DOCUMENTS POST - Cookie names:",
+    Object.keys(req.cookies || {})
+  );
+
   try {
-    const user = await requireSyncedUser(req, res);
+    console.log("🔍 DOCUMENTS POST - Calling requireAuthenticatedUser");
+    const user = await requireAuthenticatedUser(req, res);
+    console.log("✅ DOCUMENTS POST - User authenticated:", user.email);
     const { title } = req.body;
 
     const defaultContent = {
@@ -142,6 +171,17 @@ async function handleCreateDocument(req: NextApiRequest, res: NextApiResponse) {
     return res.status(201).json(document);
   } catch (error) {
     console.error("Error creating document:", error);
+
+    // Handle authentication errors specifically
+    if (
+      error instanceof Error &&
+      (error.message.includes("Authentication required") ||
+        error.message.includes("Invalid session") ||
+        error.message.includes("User not found"))
+    ) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
     return res.status(500).json({
       error:
         error instanceof Error ? error.message : "Failed to create document",

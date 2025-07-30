@@ -15,42 +15,22 @@ interface SignUpProps {
 }
 
 export default function SignUpPage({ providers }: SignUpProps) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  const handleCredentialsSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleOAuthSignUp = async (providerId: string) => {
     setIsLoading(true);
     try {
-      // Since our credentials provider auto-creates users, we can use signIn
-      const result = await signIn("credentials", {
-        email,
-        password,
+      console.log(`🔄 Starting OAuth sign-up with ${providerId}`);
+      const result = await signIn(providerId, {
         callbackUrl: "/",
-        redirect: false,
+        redirect: true,
       });
-
-      if (result?.error) {
-        alert(result.error);
-      } else if (result?.ok) {
-        // Force redirect on successful sign up
-        router.push("/");
-      }
+      console.log(`🔄 SignUp result:`, result);
     } catch (error) {
-      console.error("Sign up error:", error);
-      alert("Sign up failed. Please try again.");
-    } finally {
+      console.error("OAuth sign up error:", error);
       setIsLoading(false);
     }
-  };
-
-  const handleOAuthSignUp = (providerId: string) => {
-    signIn(providerId, {
-      callbackUrl: "/",
-      redirect: true,
-    });
   };
 
   return (
@@ -82,60 +62,28 @@ export default function SignUpPage({ providers }: SignUpProps) {
                   variant="outline"
                   className="w-full"
                   onClick={() => handleOAuthSignUp(provider.id)}
+                  disabled={isLoading}
                 >
-                  Continue with {provider.name}
+                  {isLoading
+                    ? "Creating account..."
+                    : `Continue with ${provider.name}`}
                 </Button>
               );
             })}
 
-            {/* Credentials Form */}
-            {providers?.credentials && (
-              <>
-                {Object.values(providers || {}).length > 1 && (
-                  <div className="relative">
-                    <div className="absolute inset-0 flex items-center">
-                      <span className="w-full border-t" />
-                    </div>
-                    <div className="relative flex justify-center text-xs uppercase">
-                      <span className="bg-background px-2 text-muted-foreground">
-                        Or create account with email
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                <form onSubmit={handleCredentialsSignUp} className="space-y-4">
-                  <div>
-                    <Label htmlFor="email">Email Address</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="Enter your email address"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="password">Password</Label>
-                    <Input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      placeholder="Create a password"
-                      required
-                      minLength={4}
-                    />
-                  </div>
-                  <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Creating Account..." : "Create Account"}
-                  </Button>
-                  <p className="text-center text-xs text-muted-foreground">
-                    By creating an account, you agree to our terms of service
-                  </p>
-                </form>
-              </>
+            {/* Show message if no OAuth providers are configured */}
+            {Object.values(providers || {}).filter(
+              (p: any) => p.id !== "credentials"
+            ).length === 0 && (
+              <div className="py-8 text-center">
+                <p className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+                  No authentication providers are currently configured.
+                </p>
+                <p className="text-xs text-slate-500 dark:text-slate-500">
+                  Please contact your administrator or configure OAuth
+                  providers.
+                </p>
+              </div>
             )}
 
             <div className="text-center">

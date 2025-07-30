@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { getUserFromRequest } from "@/lib/auth";
+import { requireAuthenticatedUser } from "@/lib/auth-guards";
 
 export default async function handler(
   req: NextApiRequest,
@@ -10,11 +10,7 @@ export default async function handler(
   }
 
   try {
-    const user = await getUserFromRequest(req, res);
-
-    if (!user) {
-      return res.status(401).json({ error: "Authentication required" });
-    }
+    const user = await requireAuthenticatedUser(req, res);
 
     res.json({
       id: user.id,
@@ -24,10 +20,25 @@ export default async function handler(
       imageUrl: user.imageUrl,
       name: `${user.firstName} ${user.lastName}`.trim(),
       createdAt: user.createdAt,
-      updatedAt: user.updatedAt
+      updatedAt: user.updatedAt,
+      emailVerified: user.emailVerified,
     });
   } catch (error) {
     console.error("Error getting current user:", error);
+
+    if (error instanceof Error) {
+      if (
+        error.message === "Authentication required" ||
+        error.message === "Invalid session" ||
+        error.message === "Email verification required"
+      ) {
+        return res.status(401).json({ error: error.message });
+      }
+      if (error.message === "User not found") {
+        return res.status(404).json({ error: error.message });
+      }
+    }
+
     res.status(500).json({ error: "Internal server error" });
   }
 }

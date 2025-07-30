@@ -1,5 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { syncUserToDatabase, checkDocumentPermissions } from "@/lib/user-sync";
+import { requireAuthenticatedUser } from "@/lib/auth-guards";
+import { checkDocumentPermissions } from "@/lib/user-sync";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
@@ -24,7 +25,7 @@ export default async function handler(
     try {
       console.log("🔍 DOCUMENT API - Starting GET request for document:", id);
 
-      const user = await syncUserToDatabase(req, res);
+      const user = await requireAuthenticatedUser(req, res);
       console.log("✅ DOCUMENT API - User authenticated:", user.email);
 
       const { hasAccess, document } = await checkDocumentPermissions(
@@ -61,6 +62,17 @@ export default async function handler(
         "❌ DOCUMENT API - Error stack:",
         error instanceof Error ? error.stack : "No stack trace"
       );
+
+      // Handle authentication errors specifically
+      if (
+        error instanceof Error &&
+        (error.message.includes("Authentication required") ||
+          error.message.includes("Invalid session") ||
+          error.message.includes("User not found"))
+      ) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
       return res.status(500).json({
         error: "Internal server error",
         message: error instanceof Error ? error.message : String(error),
@@ -74,7 +86,7 @@ export default async function handler(
       console.log("🔍 DOCUMENT API - Starting PUT request for document:", id);
 
       const { content, title } = req.body;
-      const user = await syncUserToDatabase(req, res);
+      const user = await requireAuthenticatedUser(req, res);
       console.log("✅ DOCUMENT API - User authenticated for PUT:", user.email);
 
       const { hasAccess, document } = await checkDocumentPermissions(
@@ -129,6 +141,17 @@ export default async function handler(
         "❌ DOCUMENT API - Error stack:",
         error instanceof Error ? error.stack : "No stack trace"
       );
+
+      // Handle authentication errors specifically
+      if (
+        error instanceof Error &&
+        (error.message.includes("Authentication required") ||
+          error.message.includes("Invalid session") ||
+          error.message.includes("User not found"))
+      ) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
       return res.status(500).json({
         error: "Failed to save document",
         message: error instanceof Error ? error.message : String(error),

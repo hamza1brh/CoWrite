@@ -62,19 +62,32 @@ export default function Dashboard() {
     const fetchDocuments = async () => {
       try {
         console.log("Fetching documents...");
-        const response = await fetch("/api/documents");
+        const response = await fetch("/api/documents", {
+          credentials: "include",
+        });
         console.log("Response status:", response.status);
         console.log("Response ok:", response.ok);
+        console.log("Response headers:", response.headers.get("content-type"));
+
+        const responseText = await response.text();
+        console.log("Raw response text:", responseText);
 
         if (response.ok) {
-          const apiDocs: DocumentWithOwner[] = await response.json();
-          console.log("API returned documents:", apiDocs);
-          console.log("Number of documents:", apiDocs.length);
+          try {
+            const apiDocs: DocumentWithOwner[] = JSON.parse(responseText);
+            console.log("API returned documents:", apiDocs);
+            console.log("Number of documents:", apiDocs.length);
 
-          const transformedDocs = apiDocs.map(transformDocumentForCard);
-          console.log("Transformed documents:", transformedDocs);
-          setDocuments(transformedDocs);
-          console.log("document preview: ", transformedDocs[0].preview);
+            const transformedDocs = apiDocs.map(transformDocumentForCard);
+            console.log("Transformed documents:", transformedDocs);
+            setDocuments(transformedDocs);
+            if (transformedDocs.length > 0) {
+              console.log("document preview: ", transformedDocs[0].preview);
+            }
+          } catch (jsonError) {
+            console.error("JSON parse error:", jsonError);
+            console.error("Response was not valid JSON:", responseText);
+          }
         } else {
           const errorText = await response.text();
           console.error(
@@ -99,6 +112,7 @@ export default function Dashboard() {
       console.log("Creating document...");
       const response = await fetch("/api/documents", {
         method: "POST",
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -110,11 +124,19 @@ export default function Dashboard() {
       console.log("creating new document , Response status:", response.status);
       console.log("Response ok:", response.ok);
 
-      if (response.ok) {
-        const newDoc: DocumentWithOwner = await response.json();
-        console.log("Created document:", newDoc);
+      const responseText = await response.text();
+      console.log("Create document raw response:", responseText);
 
-        router.push(`/editor/${newDoc.id}`);
+      if (response.ok) {
+        try {
+          const newDoc: DocumentWithOwner = JSON.parse(responseText);
+          console.log("Created document:", newDoc);
+
+          router.push(`/editor/${newDoc.id}`);
+        } catch (jsonError) {
+          console.error("JSON parse error on create:", jsonError);
+          console.error("Create response was not valid JSON:", responseText);
+        }
       } else {
         const errorData = await response.json();
         console.error("Failed to create document:", errorData);
