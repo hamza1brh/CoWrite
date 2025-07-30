@@ -1,7 +1,6 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { getServerSession } from "next-auth/next";
 import { authOptions } from "@/lib/auth-config";
-import { getUserFromRequest } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 export default async function handler(
@@ -18,12 +17,12 @@ export default async function handler(
   }
 
   try {
-    console.log("🔍 DEBUG AUTH - Starting authentication debug");
+    console.log("🔍 DEBUG SESSION - Starting session debug");
 
     // Get raw session
     const session = await getServerSession(req, res, authOptions);
     console.log(
-      "🔍 DEBUG AUTH - Raw session:",
+      "🔍 DEBUG SESSION - Raw session:",
       JSON.stringify(session, null, 2)
     );
 
@@ -33,19 +32,36 @@ export default async function handler(
         session: null,
         user: null,
         dbUser: null,
+        allUsers: await prisma.user.findMany({
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            firstName: true,
+            lastName: true,
+            emailVerified: true,
+            createdAt: true,
+          },
+        }),
       });
     }
 
-    // Try to get user from our helper
+    // Check user in database
     let dbUser = null;
-    let authError = null;
-
-    try {
-      dbUser = await getUserFromRequest(req, res);
-      console.log("✅ DEBUG AUTH - Successfully got user from request");
-    } catch (error) {
-      authError = error instanceof Error ? error.message : String(error);
-      console.log("❌ DEBUG AUTH - Error getting user:", authError);
+    if (session.user?.id) {
+      dbUser = await prisma.user.findUnique({
+        where: { id: session.user.id },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          firstName: true,
+          lastName: true,
+          emailVerified: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
     }
 
     // Check all users in database
@@ -53,14 +69,16 @@ export default async function handler(
       select: {
         id: true,
         email: true,
+        name: true,
         firstName: true,
         lastName: true,
+        emailVerified: true,
         createdAt: true,
       },
     });
 
     console.log(
-      `🔍 DEBUG AUTH - Found ${allUsers.length} users in database:`,
+      `🔍 DEBUG SESSION - Found ${allUsers.length} users in database:`,
       allUsers
     );
 
@@ -70,20 +88,21 @@ export default async function handler(
         user: session.user,
         expires: session.expires,
       },
-      authError,
       dbUser: dbUser
         ? {
             id: dbUser.id,
             email: dbUser.email,
+            name: dbUser.name,
             firstName: dbUser.firstName,
             lastName: dbUser.lastName,
+            emailVerified: dbUser.emailVerified,
           }
         : null,
       allUsers,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
-    console.error("DEBUG AUTH ERROR:", error);
+    console.error("DEBUG SESSION ERROR:", error);
     return res.status(500).json({
       error: "Debug failed",
       message: error instanceof Error ? error.message : String(error),

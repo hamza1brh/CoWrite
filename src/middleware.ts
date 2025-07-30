@@ -2,44 +2,28 @@ import { withAuth } from "next-auth/middleware";
 
 export default withAuth(
   function middleware(req) {
-    const { pathname } = req.nextUrl;
-
-    // Redirect unauthenticated users from root to welcome page
-    if (pathname === "/" && !req.nextauth.token) {
-      return Response.redirect(new URL("/welcome", req.url));
-    }
+    // For database sessions, we'll handle redirects in the page components
+    // This middleware will just handle protected API routes
   },
   {
     callbacks: {
       authorized: ({ token, req }) => {
         const { pathname } = req.nextUrl;
 
-        // Public routes that don't require authentication
-        const publicRoutes = ["/welcome", "/sign-in", "/sign-up", "/api/auth"];
-
-        if (publicRoutes.some(route => pathname.startsWith(route))) {
+        // Allow all page routes - let components handle auth
+        if (!pathname.startsWith("/api/")) {
           return true;
         }
 
-        // Protected routes that require authentication
-        const protectedRoutes = [
-          "/",
-          "/editor",
-          "/api/documents",
-          "/api/comments",
-          "/api/users",
-        ];
-
-        if (protectedRoutes.some(route => pathname.startsWith(route))) {
-          return !!token;
+        // Allow ALL API routes to reach their handlers
+        // Let the API endpoints handle their own authentication and return proper JSON errors
+        if (pathname.startsWith("/api/")) {
+          return true;
         }
 
-        // Default: require authentication
-        return !!token;
+        // Default: allow access
+        return true;
       },
-    },
-    pages: {
-      signIn: "/welcome",
     },
   }
 );

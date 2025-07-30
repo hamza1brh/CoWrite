@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { getUserFromRequest } from "@/lib/auth";
+import { requireAuthenticatedUser } from "@/lib/auth-guards";
 import { NextApiRequest, NextApiResponse } from "next";
 
 export interface SyncedUser {
@@ -18,7 +18,7 @@ export async function syncUserToDatabase(
   req: NextApiRequest,
   res?: NextApiResponse
 ): Promise<SyncedUser> {
-  const user = await getUserFromRequest(req, res!);
+  const user = await requireAuthenticatedUser(req, res!);
 
   if (!user) {
     throw new Error("User authentication required");
