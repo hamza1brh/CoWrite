@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +20,7 @@ interface Comment {
   authorId: string;
   author: {
     id: string;
+    name: string;
     firstName: string;
     lastName: string;
     email: string;
@@ -43,8 +45,21 @@ export default function CommentsPanel({
   onAddComment,
   onResolveComment,
 }: CommentsPanelProps) {
+  const { data: session } = useSession();
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Helper function to get real avatar URL for a comment author
+  const getRealAvatarUrl = (author: Comment["author"]) => {
+    // Check if this is the current user commenting
+    const isCurrentUser = author.id === session?.user?.id;
+    if (isCurrentUser && session?.user?.image) {
+      return session.user.image;
+    }
+
+    // Fallback to the stored imageUrl
+    return author.imageUrl;
+  };
 
   const handleSubmitComment = async () => {
     if (!newComment.trim()) return;
@@ -110,26 +125,45 @@ export default function CommentsPanel({
   const formatTimestamp = (timestamp: string) => {
     const date = new Date(timestamp);
     const now = new Date();
-    const diffInHours = (now.getTime() - date.getTime()) / (1000 * 60 * 60);
+    const diffInMs = now.getTime() - date.getTime();
+    const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+    const diffInHours = Math.floor(diffInMs / (1000 * 60 * 60));
+    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
 
-    if (diffInHours < 1) {
-      return "Just now";
+    if (diffInMs < 30000) {
+      return "Just now"; // Less than 30 seconds
+    } else if (diffInMinutes < 1) {
+      return `${Math.floor(diffInMs / 1000)}s ago`; // Seconds
+    } else if (diffInMinutes < 60) {
+      return `${diffInMinutes}m ago`; // Minutes
     } else if (diffInHours < 24) {
-      return `${Math.floor(diffInHours)}h ago`;
+      return `${diffInHours}h ago`; // Hours
+    } else if (diffInDays < 7) {
+      return `${diffInDays}d ago`; // Days
+    } else if (diffInDays < 30) {
+      const weeks = Math.floor(diffInDays / 7);
+      return `${weeks}w ago`; // Weeks
     } else {
-      return date.toLocaleDateString();
+      // For older comments, show the actual date
+      return date.toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+        year: date.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
+      });
     }
   };
 
   const getDisplayName = (author: Comment["author"]) => {
-    return `${author.firstName} ${author.lastName}`.trim() || author.email;
+    return author.name || author.email;
   };
 
   const getInitials = (author: Comment["author"]) => {
-    const firstName = author.firstName || "";
-    const lastName = author.lastName || "";
-    if (firstName && lastName) {
-      return `${firstName[0]}${lastName[0]}`.toUpperCase();
+    if (author.name) {
+      return author.name
+        .split(" ")
+        .map(n => n[0])
+        .join("")
+        .toUpperCase();
     }
     return author.email[0]?.toUpperCase() || "U";
   };
@@ -162,58 +196,80 @@ export default function CommentsPanel({
           <ScrollArea className="flex-1">
             <div className="space-y-4 p-4">
               {comments.length > 0 ? (
-                comments.map(comment => (
-                  <motion.div
-                    key={comment.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className={`rounded-lg border p-3 ${
-                      comment.resolved
-                        ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
-                        : "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-700"
-                    }`}
-                  >
-                    <div className="flex items-start space-x-3">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={comment.author.imageUrl} />
-                        <AvatarFallback>
-                          {getInitials(comment.author)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex-1">
-                        <div className="mb-1 flex items-center justify-between">
-                          <span className="text-sm font-medium">
-                            {getDisplayName(comment.author)}
-                          </span>
-                          <span className="text-xs text-slate-500">
-                            {formatTimestamp(comment.createdAt)}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-700 dark:text-slate-300">
-                          {comment.content}
-                        </p>
-                        <div className="mt-2 flex items-center justify-between">
-                          {comment.resolved ? (
-                            <Badge variant="secondary" className="text-xs">
-                              <Check className="mr-1 h-3 w-3" />
-                              Resolved
-                            </Badge>
-                          ) : (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleResolveComment(comment.id)}
-                              className="text-xs"
+                comments.map(comment => {
+                  const isCurrentUser = comment.author.id === session?.user?.id;
+                  const realAvatarUrl = getRealAvatarUrl(comment.author);
+
+                  return (
+                    <motion.div
+                      key={comment.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`rounded-lg border p-3 ${
+                        comment.resolved
+                          ? "border-green-200 bg-green-50 dark:border-green-800 dark:bg-green-900/20"
+                          : "border-slate-200 bg-slate-50 dark:border-slate-600 dark:bg-slate-700"
+                      }`}
+                    >
+                      <div className="flex items-start space-x-3">
+                        <Avatar
+                          className={`h-6 w-6 ${
+                            isCurrentUser
+                              ? "ring-2 ring-blue-500 ring-offset-1 dark:ring-blue-400"
+                              : ""
+                          }`}
+                        >
+                          <AvatarImage src={realAvatarUrl} />
+                          <AvatarFallback>
+                            {getInitials(comment.author)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1">
+                          <div className="mb-1 flex items-center justify-between">
+                            <span
+                              className={`text-sm font-medium ${
+                                isCurrentUser
+                                  ? "text-blue-600 dark:text-blue-400"
+                                  : ""
+                              }`}
                             >
-                              <Check className="mr-1 h-3 w-3" />
-                              Resolve
-                            </Button>
-                          )}
+                              {comment.author.name || comment.author.email}
+                              {isCurrentUser && (
+                                <span className="ml-1 text-xs text-blue-500">
+                                  (You)
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {formatTimestamp(comment.createdAt)}
+                            </span>
+                          </div>
+                          <p className="text-sm text-slate-700 dark:text-slate-300">
+                            {comment.content}
+                          </p>
+                          <div className="mt-2 flex items-center justify-between">
+                            {comment.resolved ? (
+                              <Badge variant="secondary" className="text-xs">
+                                <Check className="mr-1 h-3 w-3" />
+                                Resolved
+                              </Badge>
+                            ) : (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleResolveComment(comment.id)}
+                                className="text-xs"
+                              >
+                                <Check className="mr-1 h-3 w-3" />
+                                Resolve
+                              </Button>
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </motion.div>
-                ))
+                    </motion.div>
+                  );
+                })
               ) : (
                 <div className="text-center text-slate-500 dark:text-slate-400">
                   <MessageCircle className="mx-auto mb-2 h-8 w-8 opacity-50" />

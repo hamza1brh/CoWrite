@@ -65,11 +65,21 @@ export interface Collaborator {
 }
 
 export interface AISuggestion {
-  id: number;
-  type: "grammar" | "style" | "content";
+  id: string;
+  type:
+    | "correction"
+    | "improvement"
+    | "summary"
+    | "custom"
+    | "addition"
+    | "formatting"
+    | "rewrite";
   title: string;
   description: string;
+  originalText: string;
+  suggestedText: string;
   confidence: number;
+  appliedAt?: string;
 }
 
 export interface MockComment {

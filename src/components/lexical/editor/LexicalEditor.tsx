@@ -18,6 +18,10 @@ import { HorizontalRuleNode } from "@lexical/react/LexicalHorizontalRuleNode";
 import Editor from "./Editor";
 import LexicalToolbar from "./LexicalToolbar";
 import UserControlPanel from "./UserControlPanel";
+import SelectionChangePlugin from "../plugins/SelectionChangePlugin";
+import TypewriterAnimationPlugin, {
+  TypewriterAnimationRef,
+} from "../plugins/TypewriterAnimationPlugin";
 
 import { cn } from "@/lib/utils";
 import { createWebsocketProvider } from "@/lib/providers";
@@ -62,6 +66,7 @@ interface LexicalEditorProps {
   readOnly?: boolean;
   initialContent?: any;
   onContentChange?: (editorState: any) => void;
+  onSelectionChange?: (selectedText: string) => void;
   userRole?: "owner" | "editor" | "viewer";
   currentUser?: {
     id: string;
@@ -82,6 +87,7 @@ interface LexicalEditorProps {
   onlineUsers?: Set<string>;
   onProviderReady?: (provider: any) => void;
   onConnectionStatusChange?: (connected: boolean) => void;
+  onTypewriterAnimationReady?: (ref: TypewriterAnimationRef) => void;
 }
 
 function EditableStateController({
@@ -97,9 +103,9 @@ function EditableStateController({
     const isEditable =
       !readOnly && (userRole === "owner" || userRole === "editor");
 
-    console.log(
-      `🔧 Setting editor editable: ${isEditable} (readOnly: ${readOnly}, userRole: ${userRole})`
-    );
+    // console.log(
+    //   `🔧 Setting editor editable: ${isEditable} (readOnly: ${readOnly}, userRole: ${userRole})`
+    // );
     editor.setEditable(isEditable);
   }, [editor, readOnly, userRole]);
 
@@ -133,12 +139,14 @@ export default function LexicalEditor({
   readOnly = false,
   initialContent = null,
   onContentChange,
+  onSelectionChange,
   userRole = "viewer",
   currentUser,
   collaborators = [],
   onlineUsers = new Set(),
   onProviderReady,
   onConnectionStatusChange,
+  onTypewriterAnimationReady,
 }: LexicalEditorProps) {
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     return {
@@ -187,11 +195,11 @@ export default function LexicalEditor({
 
     const setupProvider = async () => {
       try {
-        console.log(`🔧 Setting up provider for document: ${documentId}`);
+        //console.log(`🔧 Setting up provider for document: ${documentId}`);
         const provider = await createWebsocketProvider(documentId);
 
         if (!isMounted || !isMountedRef.current) {
-          console.log(`❌ Component unmounted during setup for ${documentId}`);
+          //console.log(`❌ Component unmounted during setup for ${documentId}`);
           provider.destroy();
           return;
         }
@@ -207,7 +215,7 @@ export default function LexicalEditor({
           const isConnected =
             event.status === "connected" ||
             ("connected" in event && event.connected === true);
-          console.log(`📡 Provider status for ${documentId}:`, event.status);
+          // console.log(`📡 Provider status for ${documentId}:`, event.status);
           if (isMounted && isMountedRef.current) {
             setConnected(isConnected);
             onConnectionStatusChange?.(isConnected);
@@ -235,7 +243,7 @@ export default function LexicalEditor({
           setYjsDoc(provider.doc);
           setProviderReady(true);
           onProviderReady?.(provider);
-          console.log(`✅ Provider ready for ${documentId}`);
+          // console.log(`✅ Provider ready for ${documentId}`);
         }
       } catch (error) {
         console.error(`❌ Failed to setup provider for ${documentId}:`, error);
@@ -248,7 +256,7 @@ export default function LexicalEditor({
     setupProvider();
 
     return () => {
-      console.log(`🧹 Cleaning up provider for ${documentId}`);
+      //console.log(`🧹 Cleaning up provider for ${documentId}`);
       isMounted = false;
 
       // Clean up event handlers first
@@ -302,7 +310,7 @@ export default function LexicalEditor({
       });
 
       hasEnhanced = true;
-      console.log(`👤 Enhanced awareness for user: ${currentUser.email}`);
+      // console.log(`👤 Enhanced awareness for user: ${currentUser.email}`);
     };
 
     // Give CollaborationPlugin time to initialize, then enhance
@@ -378,7 +386,7 @@ export default function LexicalEditor({
       }
 
       yjsDocMap.set(id, yjsDoc);
-      console.log(`🏭 Provider factory returning provider for ${id}`);
+      // console.log(`🏭 Provider factory returning provider for ${id}`);
       return yjsProvider;
     },
     [yjsProvider, yjsDoc]
@@ -408,6 +416,12 @@ export default function LexicalEditor({
 
       <LexicalComposer key={editorKey} initialConfig={editorConfig}>
         <EditableStateController readOnly={readOnly} userRole={userRole} />
+
+        {/* Selection tracking plugin */}
+        <SelectionChangePlugin onSelectionChange={onSelectionChange} />
+
+        {/* Typewriter animation plugin */}
+        <TypewriterAnimationPlugin onRef={onTypewriterAnimationReady} />
 
         {isCollaborative &&
           providerReady &&

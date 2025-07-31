@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -44,7 +45,7 @@ import InviteCollaboratorsDialog from "./InviteCollaboratorsDialog";
 
 interface Collaborator {
   id: string;
-  userId?: string; 
+  userId?: string;
   name: string;
   email: string;
   avatar?: string;
@@ -61,6 +62,8 @@ interface CollaboratorItemProps {
   onChangeRole: (collaboratorId: string, role: "EDITOR" | "VIEWER") => void;
   onRemove: (collaborator: Collaborator) => void;
   getRoleIcon: (role: string) => React.ReactNode;
+  getRealAvatarUrl: (collaborator: Collaborator) => string | undefined;
+  session: any;
 }
 
 function CollaboratorItem({
@@ -72,7 +75,12 @@ function CollaboratorItem({
   onChangeRole,
   onRemove,
   getRoleIcon,
+  getRealAvatarUrl,
+  session,
 }: CollaboratorItemProps) {
+  const isCurrentUser = collaborator.userId === session?.user?.id;
+  const realAvatarUrl = getRealAvatarUrl(collaborator);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -87,8 +95,14 @@ function CollaboratorItem({
       <div className="flex items-center gap-3">
         {/* Avatar with status */}
         <div className="relative">
-          <Avatar className="h-8 w-8">
-            <AvatarImage src={collaborator.avatar} alt={collaborator.name} />
+          <Avatar
+            className={`h-8 w-8 ${
+              isCurrentUser
+                ? "ring-2 ring-blue-500 ring-offset-1 dark:ring-blue-400"
+                : ""
+            }`}
+          >
+            <AvatarImage src={realAvatarUrl} alt={collaborator.name} />
             <AvatarFallback className="text-xs">
               {collaborator.name
                 .split(" ")
@@ -101,6 +115,11 @@ function CollaboratorItem({
               isOnline ? "bg-green-500" : "bg-gray-400"
             }`}
           />
+          {isCurrentUser && (
+            <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full border border-white bg-blue-500 dark:border-slate-800">
+              <div className="h-full w-full animate-pulse rounded-full bg-blue-500" />
+            </div>
+          )}
         </div>
 
         {/* User Info */}
@@ -192,7 +211,7 @@ interface CollaboratorPanelProps {
   onClose: () => void;
   collaborators: Collaborator[];
   currentUserRole: "owner" | "editor" | "viewer";
-  provider?: any; 
+  provider?: any;
   onAddCollaborator?: (
     email: string,
     role: "EDITOR" | "VIEWER"
@@ -214,6 +233,7 @@ export default function CollaboratorPanel({
   onRemoveCollaborator,
   onChangeRole,
 }: CollaboratorPanelProps) {
+  const { data: session } = useSession();
   const [showInviteDialog, setShowInviteDialog] = useState(false);
   const [collaboratorToRemove, setCollaboratorToRemove] =
     useState<Collaborator | null>(null);
@@ -225,6 +245,26 @@ export default function CollaboratorPanel({
   const canManageCollaborators = currentUserRole === "owner";
 
   const [awarenessUsers, setAwarenessUsers] = useState<any[]>([]);
+
+  // Helper function to get real avatar URL for a collaborator
+  const getRealAvatarUrl = (collaborator: Collaborator) => {
+    // Check if this is the current user
+    const isCurrentUser = collaborator.userId === session?.user?.id;
+    if (isCurrentUser && session?.user?.image) {
+      return session.user.image;
+    }
+
+    // Find the collaborator in awareness users to get their real avatar
+    for (const [, state] of awarenessUsers) {
+      const userId = state.user?.id || state.userId || state.id;
+      if (userId === collaborator.userId && state.user?.imageUrl) {
+        return state.user.imageUrl;
+      }
+    }
+
+    // Fallback to the stored avatar
+    return collaborator.avatar;
+  };
 
   const onlineUserIds = new Set<string>();
   for (const [, state] of awarenessUsers) {
@@ -436,6 +476,8 @@ export default function CollaboratorPanel({
                           onChangeRole={handleRoleChange}
                           onRemove={setCollaboratorToRemove}
                           getRoleIcon={getRoleIcon}
+                          getRealAvatarUrl={getRealAvatarUrl}
+                          session={session}
                         />
                       ))}
                     </div>
@@ -461,6 +503,8 @@ export default function CollaboratorPanel({
                           onChangeRole={handleRoleChange}
                           onRemove={setCollaboratorToRemove}
                           getRoleIcon={getRoleIcon}
+                          getRealAvatarUrl={getRealAvatarUrl}
+                          session={session}
                         />
                       ))}
                     </div>

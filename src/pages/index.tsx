@@ -63,40 +63,22 @@ export default function Dashboard() {
 
     const fetchDocuments = async () => {
       try {
-        console.log("Fetching documents...");
         const response = await fetch("/api/documents", {
           credentials: "include",
         });
-        console.log("Response status:", response.status);
-        console.log("Response ok:", response.ok);
-        console.log("Response headers:", response.headers.get("content-type"));
 
         const responseText = await response.text();
-        console.log("Raw response text:", responseText);
 
         if (response.ok) {
           try {
             const apiDocs: DocumentWithOwner[] = JSON.parse(responseText);
-            console.log("API returned documents:", apiDocs);
-            console.log("Number of documents:", apiDocs.length);
-
             const transformedDocs = apiDocs.map(transformDocumentForCard);
-            console.log("Transformed documents:", transformedDocs);
             setDocuments(transformedDocs);
-            if (transformedDocs.length > 0) {
-              console.log("document preview: ", transformedDocs[0].preview);
-            }
           } catch (jsonError) {
             console.error("JSON parse error:", jsonError);
-            console.error("Response was not valid JSON:", responseText);
           }
         } else {
-          const errorText = await response.text();
-          console.error(
-            "Failed to fetch documents:",
-            response.status,
-            errorText
-          );
+          console.error("Failed to fetch documents:", response.status);
         }
       } catch (error) {
         console.error("Failed to fetch documents:", error);
@@ -111,7 +93,6 @@ export default function Dashboard() {
   const handleCreateDocument = async () => {
     setCreating(true);
     try {
-      console.log("Creating document...");
       const response = await fetch("/api/documents", {
         method: "POST",
         credentials: "include",
@@ -123,21 +104,14 @@ export default function Dashboard() {
         }),
       });
 
-      console.log("creating new document , Response status:", response.status);
-      console.log("Response ok:", response.ok);
-
       const responseText = await response.text();
-      console.log("Create document raw response:", responseText);
 
       if (response.ok) {
         try {
           const newDoc: DocumentWithOwner = JSON.parse(responseText);
-          console.log("Created document:", newDoc);
-
           router.push(`/editor/${newDoc.id}`);
         } catch (jsonError) {
           console.error("JSON parse error on create:", jsonError);
-          console.error("Create response was not valid JSON:", responseText);
         }
       } else {
         const errorData = await response.json();
