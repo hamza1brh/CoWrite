@@ -245,8 +245,48 @@ export default function CollaboratorPanel({
   const canManageCollaborators = currentUserRole === "owner";
 
   const [awarenessUsers, setAwarenessUsers] = useState<any[]>([]);
+  const [userProfiles, setUserProfiles] = useState<
+    Record<string, { image?: string; name?: string; email?: string }>
+  >({});
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
 
-  // Helper function to get real avatar URL for a collaborator
+  // Fetch user profiles for all collaborators to get their real avatars
+  useEffect(() => {
+    const fetchUserProfiles = async () => {
+      const userIds = collaborators
+        .map(c => c.userId)
+        .filter((id): id is string => Boolean(id));
+
+      if (userIds.length === 0) return;
+
+      setLoadingProfiles(true);
+      try {
+        const response = await fetch("/api/users/profiles", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userIds }),
+        });
+
+        if (response.ok) {
+          const profiles = await response.json();
+          setUserProfiles(profiles);
+          console.log("✅ User profiles fetched:", profiles);
+        } else {
+          console.error("Failed to fetch user profiles:", response.status);
+        }
+      } catch (error) {
+        console.error("Failed to fetch user profiles:", error);
+      } finally {
+        setLoadingProfiles(false);
+      }
+    };
+
+    fetchUserProfiles();
+  }, [collaborators]);
+
+  // Enhanced helper function to get real avatar URL for a collaborator
   const getRealAvatarUrl = (collaborator: Collaborator) => {
     // Check if this is the current user
     const isCurrentUser = collaborator.userId === session?.user?.id;
@@ -254,15 +294,25 @@ export default function CollaboratorPanel({
       return session.user.image;
     }
 
-    // Find the collaborator in awareness users to get their real avatar
+    // First, check fetched user profiles (most reliable)
+    if (collaborator.userId && userProfiles[collaborator.userId]?.image) {
+      return userProfiles[collaborator.userId].image;
+    }
+
+    // Second, check awareness users (for real-time updates)
     for (const [, state] of awarenessUsers) {
       const userId = state.user?.id || state.userId || state.id;
-      if (userId === collaborator.userId && state.user?.imageUrl) {
-        return state.user.imageUrl;
+      if (userId === collaborator.userId) {
+        // Check multiple possible avatar fields from awareness
+        const avatarUrl =
+          state.user?.image || state.user?.imageUrl || state.user?.avatar;
+        if (avatarUrl) {
+          return avatarUrl;
+        }
       }
     }
 
-    // Fallback to the stored avatar
+    // Final fallback to the stored avatar in collaborator data
     return collaborator.avatar;
   };
 
