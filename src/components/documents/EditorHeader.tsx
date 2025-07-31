@@ -106,6 +106,46 @@ export default function EditorHeader({
   const { data: session } = useSession();
 
   const [awarenessUsers, setAwarenessUsers] = useState<any[]>([]);
+  const [userProfiles, setUserProfiles] = useState<
+    Record<string, { image?: string; name?: string; email?: string }>
+  >({});
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+
+  // Fetch user profiles for all collaborators to get their real avatars
+  useEffect(() => {
+    const fetchUserProfiles = async () => {
+      const userIds = collaborators
+        .map(c => c.userId)
+        .filter((id): id is string => Boolean(id));
+
+      if (userIds.length === 0) return;
+
+      setLoadingProfiles(true);
+      try {
+        const response = await fetch("/api/users/profiles", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userIds }),
+        });
+
+        if (response.ok) {
+          const profiles = await response.json();
+          setUserProfiles(profiles);
+          console.log("✅ User profiles fetched:", profiles);
+        } else {
+          console.error("Failed to fetch user profiles:", response.status);
+        }
+      } catch (error) {
+        console.error("Failed to fetch user profiles:", error);
+      } finally {
+        setLoadingProfiles(false);
+      }
+    };
+
+    fetchUserProfiles();
+  }, [collaborators]);
 
   const onlineUserIds = new Set<string>();
   for (const [, state] of awarenessUsers) {
@@ -114,6 +154,36 @@ export default function EditorHeader({
       onlineUserIds.add(userId);
     }
   }
+
+  // Enhanced helper function to get real avatar URL for a collaborator
+  const getRealAvatarUrl = (collaborator: Collaborator) => {
+    // Check if this is the current user
+    const isCurrentUser = collaborator.userId === session?.user?.id;
+    if (isCurrentUser && session?.user?.image) {
+      return session.user.image;
+    }
+
+    // First, check fetched user profiles (most reliable)
+    if (collaborator.userId && userProfiles[collaborator.userId]?.image) {
+      return userProfiles[collaborator.userId].image;
+    }
+
+    // Second, check awareness users (for real-time updates)
+    for (const [, state] of awarenessUsers) {
+      const userId = state.user?.id || state.userId || state.id;
+      if (userId === collaborator.userId) {
+        // Check multiple possible avatar fields from awareness
+        const avatarUrl =
+          state.user?.image || state.user?.imageUrl || state.user?.avatar;
+        if (avatarUrl) {
+          return avatarUrl;
+        }
+      }
+    }
+
+    // Final fallback to the stored avatar in collaborator data
+    return collaborator.avatar;
+  };
 
   useEffect(() => {
     if (!provider) {
@@ -326,6 +396,7 @@ export default function EditorHeader({
                     {collaborators.slice(0, 3).map(collaborator => {
                       const isCurrentUser =
                         collaborator.userId === session?.user?.id;
+                      const realAvatarUrl = getRealAvatarUrl(collaborator);
                       return (
                         <motion.div
                           key={collaborator.id}
@@ -342,11 +413,7 @@ export default function EditorHeader({
                             )}
                           >
                             <AvatarImage
-                              src={
-                                collaborator.avatar ||
-                                session?.user?.image ||
-                                ""
-                              }
+                              src={realAvatarUrl}
                               alt={collaborator.name}
                             />
                             <AvatarFallback className="text-xs">

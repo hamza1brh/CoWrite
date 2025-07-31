@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { MessageCircle, X, Send, Check } from "lucide-react";
 
 interface Comment {
@@ -48,13 +48,58 @@ export default function CommentsPanel({
   const { data: session } = useSession();
   const [newComment, setNewComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [userProfiles, setUserProfiles] = useState<
+    Record<string, { image?: string; name?: string; email?: string }>
+  >({});
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
 
-  // Helper function to get real avatar URL for a comment author
+  // Fetch user profiles for all comment authors to get their real avatars
+  useEffect(() => {
+    const fetchUserProfiles = async () => {
+      const userIds = comments
+        .map(c => c.author.id)
+        .filter((id, index, arr) => arr.indexOf(id) === index); // Remove duplicates
+
+      if (userIds.length === 0) return;
+
+      setLoadingProfiles(true);
+      try {
+        const response = await fetch("/api/users/profiles", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ userIds }),
+        });
+
+        if (response.ok) {
+          const profiles = await response.json();
+          setUserProfiles(profiles);
+          console.log("✅ Comment author profiles fetched:", profiles);
+        } else {
+          console.error("Failed to fetch user profiles:", response.status);
+        }
+      } catch (error) {
+        console.error("Failed to fetch user profiles:", error);
+      } finally {
+        setLoadingProfiles(false);
+      }
+    };
+
+    fetchUserProfiles();
+  }, [comments]);
+
+  // Enhanced helper function to get real avatar URL for a comment author
   const getRealAvatarUrl = (author: Comment["author"]) => {
     // Check if this is the current user commenting
     const isCurrentUser = author.id === session?.user?.id;
     if (isCurrentUser && session?.user?.image) {
       return session.user.image;
+    }
+
+    // Check fetched user profiles (most reliable)
+    if (userProfiles[author.id]?.image) {
+      return userProfiles[author.id].image;
     }
 
     // Fallback to the stored imageUrl
