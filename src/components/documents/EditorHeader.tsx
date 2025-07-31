@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useEffect, useState, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useSession } from "next-auth/react";
 
 export type DocumentMode = "viewing" | "editing";
 export type UserRole = "owner" | "editor" | "viewer";
@@ -102,6 +103,7 @@ export default function EditorHeader({
   provider,
 }: EditorHeaderProps) {
   const canEdit = userRole === "owner" || userRole === "editor";
+  const { data: session } = useSession();
 
   const [awarenessUsers, setAwarenessUsers] = useState<any[]>([]);
 
@@ -113,17 +115,6 @@ export default function EditorHeader({
     }
   }
 
-
-  const prevOnlineCountRef = useRef(0);
-  if (onlineUserIds.size !== prevOnlineCountRef.current) {
-    console.log("📋 EditorHeader: Online users changed:", {
-      count: onlineUserIds.size,
-      onlineUserIds: Array.from(onlineUserIds),
-    });
-    prevOnlineCountRef.current = onlineUserIds.size;
-  }
-
-
   useEffect(() => {
     if (!provider) {
       return;
@@ -131,7 +122,6 @@ export default function EditorHeader({
 
     const updateProviderInfo = () => {
       try {
-        
         if (provider.awareness) {
           const awarenessStates = Array.from(
             provider.awareness.getStates().entries()
@@ -189,7 +179,6 @@ export default function EditorHeader({
   const handleTitleBlur = async () => {
     if (localTitle !== documentTitle) {
       try {
-        console.log("💾 Saving title:", localTitle);
         await onTitleChange(localTitle);
       } catch (error) {
         console.error("Failed to save title:", error);
@@ -334,35 +323,55 @@ export default function EditorHeader({
                     onClick={handleShowCollaborators}
                     className="flex -space-x-2 transition-transform hover:scale-105"
                   >
-                    {collaborators.slice(0, 3).map(collaborator => (
-                      <motion.div
-                        key={collaborator.id}
-                        initial={{ opacity: 0, scale: 0 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="relative"
-                      >
-                        <Avatar className="h-7 w-7 border-2 border-white dark:border-slate-800 sm:h-8 sm:w-8">
-                          <AvatarImage
-                            src={collaborator.avatar || "/placeholder.svg"}
-                            alt={collaborator.name}
+                    {collaborators.slice(0, 3).map(collaborator => {
+                      const isCurrentUser =
+                        collaborator.userId === session?.user?.id;
+                      return (
+                        <motion.div
+                          key={collaborator.id}
+                          initial={{ opacity: 0, scale: 0 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="relative"
+                        >
+                          <Avatar
+                            className={cn(
+                              "h-7 w-7 border-2 sm:h-8 sm:w-8",
+                              isCurrentUser
+                                ? "border-blue-500 dark:border-blue-400"
+                                : "border-white dark:border-slate-800"
+                            )}
+                          >
+                            <AvatarImage
+                              src={
+                                collaborator.avatar ||
+                                session?.user?.image ||
+                                ""
+                              }
+                              alt={collaborator.name}
+                            />
+                            <AvatarFallback className="text-xs">
+                              {collaborator.name
+                                .split(" ")
+                                .map((n: string) => n[0])
+                                .join("")}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div
+                            className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 sm:h-3 sm:w-3 ${
+                              collaborator.userId &&
+                              onlineUserIds.has(collaborator.userId)
+                                ? "bg-green-500"
+                                : "bg-gray-400"
+                            }`}
                           />
-                          <AvatarFallback className="text-xs">
-                            {collaborator.name
-                              .split(" ")
-                              .map((n: string) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div
-                          className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-800 sm:h-3 sm:w-3 ${
-                            collaborator.userId &&
-                            onlineUserIds.has(collaborator.userId)
-                              ? "bg-green-500"
-                              : "bg-gray-400"
-                          }`}
-                        />
-                      </motion.div>
-                    ))}
+                          {isCurrentUser && (
+                            <div className="absolute -right-1 -top-1 h-3 w-3 rounded-full border border-white bg-blue-500 dark:border-slate-800">
+                              <div className="h-full w-full animate-pulse rounded-full bg-blue-500" />
+                            </div>
+                          )}
+                        </motion.div>
+                      );
+                    })}
                     {collaborators.length > 3 && (
                       <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-slate-200 text-xs font-medium text-slate-600 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-300 sm:h-8 sm:w-8">
                         +{collaborators.length - 3}
@@ -430,10 +439,10 @@ export default function EditorHeader({
                 )}
               </Button>
 
-              <Button variant="outline" size="sm">
+              {/* <Button variant="outline" size="sm">
                 <Share2 className="mr-2 h-4 w-4" />
                 <span className="hidden xl:inline">Share</span>
-              </Button>
+              </Button> */}
             </div>
 
             {/* Mobile Actions - Dropdown */}
@@ -516,6 +525,31 @@ export default function EditorHeader({
                     )}
                 </DropdownMenuContent>
               </DropdownMenu>
+            </div>
+
+            {/* Current User Avatar */}
+            <div className="hidden items-center sm:flex">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div className="flex items-center">
+                    <Avatar className="h-8 w-8 ring-2 ring-blue-100 dark:ring-slate-700">
+                      <AvatarImage
+                        src={session?.user?.image || ""}
+                        alt={session?.user?.name || "User"}
+                      />
+                      <AvatarFallback className="text-xs">
+                        {session?.user?.name?.charAt(0)?.toUpperCase() || "U"}
+                      </AvatarFallback>
+                    </Avatar>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>{session?.user?.name || "Current User"}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {session?.user?.email}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             </div>
 
             <ThemeToggle />

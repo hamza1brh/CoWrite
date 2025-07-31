@@ -58,6 +58,7 @@ export default async function handler(
           author: {
             select: {
               id: true,
+              name: true,
               firstName: true,
               lastName: true,
               email: true,

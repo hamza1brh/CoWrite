@@ -24,18 +24,13 @@ import CommentsPanel from "@/components/documents/CommentsPanel";
 import AiAssistantPanel from "@/components/documents/AiAssistantPanel";
 import CollaboratorPanel from "@/components/documents/CollaboratorPanel";
 import { useSession } from "next-auth/react";
+import { $getSelection, $isRangeSelection, $getRoot } from "lexical";
+import { $createTextNode } from "lexical";
 
 import type { CollaboratorWithUser } from "@/lib/types/api";
+import type { TypewriterAnimationRef } from "@/components/lexical/plugins/TypewriterAnimationPlugin";
 
-// AI Suggestion type definition (matches AiAssistantPanel component)
-interface AISuggestion {
-  id: string;
-  type: "improvement" | "addition" | "correction" | "formatting";
-  title: string;
-  description: string;
-  confidence: number;
-  appliedAt?: string;
-}
+import { AISuggestion } from "@/lib/types/api";
 
 interface EditorDocument {
   id: string;
@@ -58,6 +53,7 @@ interface ApiComment {
   authorId: string;
   author: {
     id: string;
+    name: string;
     firstName: string;
     lastName: string;
     email: string;
@@ -127,6 +123,7 @@ export default function DocumentEditor() {
   const [comments, setComments] = useState<ApiComment[]>([]);
   const [collaborators, setCollaborators] = useState<ApiCollaborator[]>([]);
   const [aiSuggestions, setAiSuggestions] = useState<AISuggestion[]>([]);
+  const [selectedText, setSelectedText] = useState<string>("");
 
   // Loading States
   const [loading, setLoading] = useState(true);
@@ -140,67 +137,39 @@ export default function DocumentEditor() {
   const renderCountRef = useRef(0);
   const lastStateRef = useRef<any>(null);
   const editorStateRef = useRef<any>(null);
+  const editorRef = useRef<any>(null);
+  const typewriterAnimationRef = useRef<TypewriterAnimationRef | null>(null);
 
-  // Online users tracking
+  // Online users tracking - memoized to prevent re-renders
   const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set());
   const [yjsProvider, setYjsProvider] = useState<any>(null);
   const [connected, setConnected] = useState<boolean>(false);
 
-  // Debug logging
-  renderCountRef.current += 1;
+  // Stabilize online users updates to prevent excessive re-renders
+  const updateOnlineUsers = useCallback((newUsers: Set<string>) => {
+    setOnlineUsers(prev => {
+      // Only update if the set actually changed
+      if (prev.size !== newUsers.size) return newUsers;
 
-  // Only log renders when there are actual changes
-  const hasSignificantChanges = useMemo(() => {
-    const currentState = {
-      id,
-      sessionId: session?.user?.id,
-      isLoaded,
-      hasDatabaseUser: !!databaseUser,
-      documentId: document?.id,
-    };
+      // Check if any user is different
+      const prevArray = Array.from(prev);
+      const newArray = Array.from(newUsers);
 
-    const lastState =
-      renderCountRef.current === 1 ? null : lastStateRef.current;
-    lastStateRef.current = currentState;
+      for (let i = 0; i < newArray.length; i++) {
+        if (!prev.has(newArray[i])) return newUsers;
+      }
+      for (let i = 0; i < prevArray.length; i++) {
+        if (!newUsers.has(prevArray[i])) return newUsers;
+      }
 
-    if (!lastState) return true; // First render
-
-    return JSON.stringify(currentState) !== JSON.stringify(lastState);
-  }, [id, session?.user?.id, isLoaded, databaseUser, document?.id]);
-
-  if (hasSignificantChanges) {
-    console.log(`🔄 EDITOR RENDER #${renderCountRef.current}`, {
-      id,
-      sessionExists: !!session?.user,
-      sessionId: session?.user?.id,
-      isLoaded,
-      hasDatabaseUser: !!databaseUser,
-      documentId: document?.id,
-      timestamp: new Date().toISOString(),
+      return prev; // No change, return previous reference
     });
-  }
+  }, []);
 
-  // Track session changes
+  // Increment render count for debugging purposes
   useEffect(() => {
-    const oldSessionId = sessionRef.current?.user?.id;
-    const newSessionId = session?.user?.id;
-
-    if (oldSessionId !== newSessionId) {
-      console.log("🔄 SESSION CHANGED", {
-        oldSession: oldSessionId,
-        newSession: newSessionId,
-        timestamp: new Date().toISOString(),
-      });
-      sessionRef.current = session;
-    } else if (session?.user?.id && !sessionRef.current) {
-      // Only log the first session initialization
-      console.log("🔄 SESSION INITIALIZED", {
-        sessionId: session.user.id,
-        timestamp: new Date().toISOString(),
-      });
-      sessionRef.current = session;
-    }
-  }, [session?.user?.id]);
+    renderCountRef.current += 1;
+  });
 
   // Stable session check to prevent unnecessary re-renders
   const stableSession = useMemo(() => {
@@ -212,6 +181,7 @@ export default function DocumentEditor() {
           image: session.user.image,
         }
       : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     session?.user?.id,
     session?.user?.email,
@@ -219,40 +189,40 @@ export default function DocumentEditor() {
     session?.user?.image,
   ]);
 
-  const transformCollaboratorsForHeader = useCallback(
-    (apiCollaborators: ApiCollaborator[]): Collaborator[] => {
-      return apiCollaborators.map(collab => {
-        const role = collab.role.toLowerCase() as "owner" | "editor" | "viewer";
+  // Memoize transformed collaborators to prevent re-renders
+  const transformedCollaborators = useMemo(() => {
+    return collaborators.map(collab => {
+      const role = collab.role.toLowerCase() as "owner" | "editor" | "viewer";
 
-        // Use firstName + lastName if available, otherwise name, otherwise email
-        const displayName =
-          collab.user.firstName && collab.user.lastName
-            ? `${collab.user.firstName} ${collab.user.lastName}`.trim()
-            : (collab.user as any).name || collab.user.email;
+      const displayName =
+        collab.user.firstName && collab.user.lastName
+          ? `${collab.user.firstName} ${collab.user.lastName}`.trim()
+          : (collab.user as any).name || collab.user.email;
 
-        return {
-          id: collab.id,
-          userId: String(collab.user?.id ?? collab.userId ?? ""),
-          name: displayName,
-          email: collab.user.email,
-          avatar: collab.user.imageUrl,
-          status: "offline" as const,
-          role,
-          cursor: undefined,
-        };
-      });
+      return {
+        id: collab.id,
+        userId: String(collab.user?.id ?? collab.userId ?? ""),
+        name: displayName,
+        email: collab.user.email,
+        avatar: collab.user.imageUrl,
+        status: "offline" as const,
+        role,
+        cursor: undefined,
+      };
+    });
+  }, [collaborators]);
+
+  const handleProviderReady = useCallback(
+    (provider: any) => {
+      if (yjsProvider !== provider) {
+        setYjsProvider(provider);
+      }
     },
-    []
+    [yjsProvider]
   );
 
-  const handleProviderReady = useCallback((provider: any) => {
-    console.log("📡 Editor received provider:", !!provider);
-    setYjsProvider(provider);
-  }, []);
-
   const handleConnectionStatusChange = useCallback((isConnected: boolean) => {
-    console.log("📡 Editor connection status changed:", isConnected);
-    setConnected(isConnected);
+    setConnected(prev => (prev !== isConnected ? isConnected : prev));
   }, []);
 
   const userRole = useMemo(() => {
@@ -287,33 +257,8 @@ export default function DocumentEditor() {
     }
 
     return "viewer";
-  }, [document, databaseUser, collaborators]);
-
-  // Memoize the entire component state to prevent unnecessary re-renders
-  const componentState = useMemo(
-    () => ({
-      id,
-      isLoaded,
-      stableSession,
-      databaseUser,
-      document,
-      userRole,
-      mode,
-      loading,
-      error,
-    }),
-    [
-      id,
-      isLoaded,
-      stableSession,
-      databaseUser,
-      document,
-      userRole,
-      mode,
-      loading,
-      error,
-    ]
-  );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document?.ownerId, document?.isPublic, databaseUser?.id, collaborators]);
 
   useEffect(() => {
     if (userRole === "owner" || userRole === "editor") {
@@ -328,23 +273,19 @@ export default function DocumentEditor() {
 
     const fetchDatabaseUser = async () => {
       try {
-        console.log("🔍 EDITOR - Fetching database user...");
         const response = await fetch("/api/users/me");
 
         if (response.ok) {
           const dbUser = await response.json();
-          console.log("✅ EDITOR - Database user loaded:", dbUser.email);
           setDatabaseUser(dbUser);
         } else {
           console.error(
-            "❌ EDITOR - Failed to sync user to database, status:",
+            "Failed to sync user to database, status:",
             response.status
           );
-          const errorText = await response.text();
-          console.error("❌ EDITOR - Error response:", errorText);
         }
       } catch (error) {
-        console.error("❌ EDITOR - Error syncing user:", error);
+        console.error("Error syncing user:", error);
       }
     };
 
@@ -353,22 +294,12 @@ export default function DocumentEditor() {
 
   useEffect(() => {
     if (isLoaded && !stableSession && !hasNavigatedRef.current) {
-      console.log("🔄 NAVIGATING TO WELCOME - No session");
       hasNavigatedRef.current = true;
       router.replace("/welcome");
     }
   }, [isLoaded, stableSession, router]);
 
   useEffect(() => {
-    console.log("🔍 EDITOR - Document fetch conditions:", {
-      hasId: !!id,
-      idType: typeof id,
-      isLoaded,
-      hasSession: !!stableSession,
-      hasDatabaseUser: !!databaseUser,
-      renderCount: renderCountRef.current,
-    });
-
     if (
       !id ||
       typeof id !== "string" ||
@@ -376,25 +307,15 @@ export default function DocumentEditor() {
       !stableSession ||
       !databaseUser
     ) {
-      console.log("🔍 EDITOR - Not ready to fetch document yet");
       return;
     }
-
-    console.log("🔍 EDITOR - Starting document fetch for:", id);
 
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        console.log("🔍 EDITOR - Fetching document from API...");
-        // Fetch document
         const response = await fetch(`/api/documents/${id}`);
-
-        console.log(
-          "🔍 EDITOR - Document API response status:",
-          response.status
-        );
 
         if (!response.ok) {
           if (response.status === 404) {
@@ -408,7 +329,6 @@ export default function DocumentEditor() {
         }
 
         const docData = await response.json();
-        console.log("✅ EDITOR - Document loaded successfully:", docData.title);
 
         const transformedDoc: EditorDocument = {
           id: docData.id,
@@ -437,7 +357,6 @@ export default function DocumentEditor() {
           const commentsData = await commentsResponse.json();
           setComments(commentsData);
         } else {
-          console.warn("Failed to load comments:", commentsResponse.status);
           setComments([]);
         }
 
@@ -445,16 +364,12 @@ export default function DocumentEditor() {
           const collaboratorsData = await collaboratorsResponse.json();
           setCollaborators(collaboratorsData);
         } else {
-          console.warn(
-            "Failed to load collaborators:",
-            collaboratorsResponse.status
-          );
           setCollaborators([]);
         }
 
         setAiSuggestions([]);
       } catch (err) {
-        console.error("❌ EDITOR - Error fetching document:", err);
+        console.error("Error fetching document:", err);
         setError("Failed to load document data");
       } finally {
         setLoading(false);
@@ -592,15 +507,14 @@ export default function DocumentEditor() {
 
   const handleContentChange = useCallback(
     (editorState: any) => {
-      if (!document) return;
+      const currentDocument = document;
+      if (!currentDocument) return;
 
       try {
         const contentString = JSON.stringify(editorState);
 
-        // Store the current editor state
         editorStateRef.current = editorState;
 
-        // Skip if this is the initial load and content hasn't changed
         if (
           isInitialLoadRef.current &&
           contentString === lastSavedContentRef.current
@@ -614,30 +528,38 @@ export default function DocumentEditor() {
         }
 
         isInitialLoadRef.current = false;
-
-        // Update local state for UI purposes only
-        // Yjs handles all persistence
-        setDocument(prev =>
-          prev ? { ...prev, content: contentString } : null
-        );
+        lastSavedContentRef.current = contentString;
       } catch (err) {
         console.error("Failed to process content change:", err);
       }
     },
-    [document]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    []
   );
 
   // Debounced content change handler to prevent excessive re-renders
+  const debouncedTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debouncedTimeoutRef.current) {
+        clearTimeout(debouncedTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const debouncedContentChange = useCallback(
-    (() => {
-      let timeoutId: NodeJS.Timeout;
-      return (editorState: any) => {
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(() => {
-          handleContentChange(editorState);
-        }, 100);
-      };
-    })(),
+    (editorState: any) => {
+      if (debouncedTimeoutRef.current) {
+        clearTimeout(debouncedTimeoutRef.current);
+      }
+
+      debouncedTimeoutRef.current = setTimeout(() => {
+        handleContentChange(editorState);
+        debouncedTimeoutRef.current = undefined;
+      }, 300);
+    },
     [handleContentChange]
   );
 
@@ -645,18 +567,63 @@ export default function DocumentEditor() {
     setComments(prev => [newCommentData, ...prev]);
   };
 
-  const handleResolveComment = (commentId: string) => {
-    setComments(prev =>
-      prev.map(comment =>
-        comment.id === commentId ? { ...comment, resolved: true } : comment
-      )
-    );
+  const handleResolveComment = async (commentId: string) => {
+    try {
+      setComments(prev =>
+        prev.map(comment =>
+          comment.id === commentId ? { ...comment, resolved: true } : comment
+        )
+      );
+    } catch (err) {
+      console.error("Failed to resolve comment:", err);
+    }
   };
+
+  // Handle text selection changes in the editor
+  const handleSelectionChange = useCallback((selectedTextContent: string) => {
+    setSelectedText(selectedTextContent);
+  }, []);
+
+  const handleTypewriterAnimationReady = useCallback(
+    (ref: TypewriterAnimationRef) => {
+      typewriterAnimationRef.current = ref;
+    },
+    []
+  );
+
+  const handleApplySuggestionWithAnimation = useCallback(
+    async (suggestion: AISuggestion): Promise<void> => {
+      try {
+        if (typewriterAnimationRef.current) {
+          await typewriterAnimationRef.current.applyTextWithAnimation(
+            suggestion.originalText,
+            suggestion.suggestedText
+          );
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        setAiSuggestions(prev => [
+          { ...suggestion, appliedAt: new Date().toISOString() },
+          ...prev.filter(s => s.id !== suggestion.id),
+        ]);
+      } catch (error) {
+        console.error("Error applying suggestion with animation:", error);
+      }
+    },
+    []
+  );
+
+  const handleApplySuggestion = useCallback((suggestion: AISuggestion) => {
+    setAiSuggestions(prev => [
+      { ...suggestion, appliedAt: new Date().toISOString() },
+      ...prev.filter(s => s.id !== suggestion.id),
+    ]);
+  }, []);
 
   const currentUserForLexical = useMemo(() => {
     if (!databaseUser) return undefined;
 
-    // Use name if firstName/lastName are null, otherwise construct from parts
     const displayName =
       databaseUser.firstName && databaseUser.lastName
         ? `${databaseUser.firstName} ${databaseUser.lastName}`.trim()
@@ -672,7 +639,6 @@ export default function DocumentEditor() {
 
   const collaboratorsForLexical = useMemo(() => {
     return collaborators.map(collab => {
-      // Use firstName + lastName if available, otherwise name, otherwise email
       const displayName =
         collab.user.firstName && collab.user.lastName
           ? `${collab.user.firstName} ${collab.user.lastName}`.trim()
@@ -692,12 +658,93 @@ export default function DocumentEditor() {
   }, [collaborators]);
 
   // Calculate unread comments count
-  const unreadCommentsCount = comments.filter(c => !c.resolved).length;
+  const unreadCommentsCount = useMemo(() => {
+    return comments.filter(c => !c.resolved).length;
+  }, [comments]);
 
-  // Generate a stable key for the main component to prevent unnecessary re-mounting
-  const componentKey = useMemo(() => {
-    return `editor-${document?.id || "loading"}-${stableSession?.id || "no-session"}-${userRole}`;
-  }, [document?.id, stableSession?.id, userRole]);
+  // Toggle handlers
+  const handleToggleAI = useCallback(() => {
+    setShowAI(!showAI);
+  }, [showAI]);
+
+  const handleToggleComments = useCallback(() => {
+    setShowComments(!showComments);
+  }, [showComments]);
+
+  const handleToggleCollaborators = useCallback(() => {
+    setShowCollaborators(!showCollaborators);
+  }, [showCollaborators]);
+
+  const handleCloseAI = useCallback(() => {
+    setShowAI(false);
+  }, []);
+
+  const handleCloseComments = useCallback(() => {
+    setShowComments(false);
+  }, []);
+
+  const handleCloseCollaborators = useCallback(() => {
+    setShowCollaborators(false);
+  }, []);
+
+  const handleCloseMobilePanels = useCallback(() => {
+    setShowAI(false);
+    setShowComments(false);
+    setShowCollaborators(false);
+  }, []);
+
+  const handleRefreshSuggestions = useCallback(async () => {
+    if (!document?.id) return;
+    try {
+      setAiSuggestions([]);
+    } catch (err) {
+      console.error("Failed to refresh AI suggestions:", err);
+    }
+  }, [document?.id]);
+
+  // Memoize isReadOnly to prevent re-renders
+  const isReadOnly = useMemo(() => {
+    return userRole === "viewer" || mode === "viewing";
+  }, [userRole, mode]);
+
+  // Memoize stable props for LexicalEditor to prevent re-renders
+  const lexicalEditorProps = useMemo(
+    () => ({
+      showToolbar: mode === "editing",
+      className: "min-h-full",
+      documentId: document?.id || "",
+      readOnly: isReadOnly,
+      initialContent:
+        document?.content &&
+        document.content !== JSON.stringify(DEFAULT_EDITOR_STATE)
+          ? JSON.parse(document.content)
+          : editorStateRef.current || null,
+      onContentChange: debouncedContentChange,
+      userRole: userRole as "owner" | "editor" | "viewer",
+      currentUser: currentUserForLexical,
+      collaborators: collaboratorsForLexical,
+      onlineUsers,
+      onProviderReady: handleProviderReady,
+      onConnectionStatusChange: handleConnectionStatusChange,
+      onSelectionChange: handleSelectionChange,
+      onTypewriterAnimationReady: handleTypewriterAnimationReady,
+    }),
+    [
+      mode,
+      document?.id,
+      document?.content,
+      isReadOnly,
+      debouncedContentChange,
+      userRole,
+      currentUserForLexical,
+      collaboratorsForLexical,
+      onlineUsers,
+      handleProviderReady,
+      handleConnectionStatusChange,
+      handleSelectionChange,
+      handleTypewriterAnimationReady,
+    ]
+  );
 
   if (!isLoaded || !stableSession || loading) {
     return (
@@ -730,10 +777,8 @@ export default function DocumentEditor() {
     );
   }
 
-  const isReadOnly = userRole === "viewer" || mode === "viewing";
-
   return (
-    <div key={componentKey}>
+    <div>
       <SidebarProvider>
         <AppSidebar />
         <SidebarInset>
@@ -741,7 +786,7 @@ export default function DocumentEditor() {
             <EditorHeader
               documentTitle={document.title}
               onTitleChange={handleTitleChange}
-              collaborators={transformCollaboratorsForHeader(collaborators)}
+              collaborators={transformedCollaborators}
               showAI={showAI}
               showComments={showComments}
               onToggleAI={() => setShowAI(!showAI)}
@@ -783,26 +828,7 @@ export default function DocumentEditor() {
                         </div>
                       }
                     >
-                      <LexicalEditor
-                        showToolbar={mode === "editing"}
-                        className="min-h-full"
-                        documentId={document.id}
-                        readOnly={isReadOnly}
-                        initialContent={
-                          document.content &&
-                          document.content !==
-                            JSON.stringify(DEFAULT_EDITOR_STATE)
-                            ? JSON.parse(document.content)
-                            : editorStateRef.current || null
-                        }
-                        onContentChange={debouncedContentChange}
-                        userRole={userRole}
-                        currentUser={currentUserForLexical}
-                        collaborators={collaboratorsForLexical}
-                        onlineUsers={onlineUsers}
-                        onProviderReady={handleProviderReady}
-                        onConnectionStatusChange={handleConnectionStatusChange}
-                      />
+                      <LexicalEditor {...lexicalEditorProps} />
                     </ErrorBoundary>
                   </div>
                 </div>
@@ -814,10 +840,8 @@ export default function DocumentEditor() {
                   <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
                     <CollaboratorPanel
                       isOpen={true}
-                      onClose={() => setShowCollaborators(false)}
-                      collaborators={transformCollaboratorsForHeader(
-                        collaborators
-                      )}
+                      onClose={handleCloseCollaborators}
+                      collaborators={transformedCollaborators}
                       currentUserRole={userRole}
                       provider={yjsProvider}
                       onAddCollaborator={handleAddCollaborator}
@@ -831,20 +855,14 @@ export default function DocumentEditor() {
                   <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
                     <AiAssistantPanel
                       isOpen={true}
-                      onClose={() => setShowAI(false)}
+                      onClose={handleCloseAI}
                       suggestions={aiSuggestions}
-                      onRefreshSuggestions={async () => {
-                        if (!document?.id) return;
-                        try {
-                          // TODO: Implement real AI suggestions API
-                          setAiSuggestions([]);
-                        } catch (err) {
-                          console.error(
-                            "Failed to refresh AI suggestions:",
-                            err
-                          );
-                        }
-                      }}
+                      selectedText={selectedText}
+                      onApplySuggestion={handleApplySuggestion}
+                      onApplySuggestionWithAnimation={
+                        handleApplySuggestionWithAnimation
+                      }
+                      onRefreshSuggestions={handleRefreshSuggestions}
                     />
                   </div>
                 )}
@@ -853,7 +871,7 @@ export default function DocumentEditor() {
                   <div className="w-80 border-l border-slate-200/50 bg-white/60 backdrop-blur-sm dark:border-slate-700/20 dark:bg-slate-800/60">
                     <CommentsPanel
                       isOpen={true}
-                      onClose={() => setShowComments(false)}
+                      onClose={handleCloseComments}
                       comments={comments}
                       documentId={document.id}
                       onAddComment={handleAddComment}
@@ -869,11 +887,7 @@ export default function DocumentEditor() {
               {(showAI || showComments || showCollaborators) && (
                 <div
                   className="fixed inset-0 z-50 bg-black/50"
-                  onClick={() => {
-                    setShowAI(false);
-                    setShowComments(false);
-                    setShowCollaborators(false);
-                  }}
+                  onClick={handleCloseMobilePanels}
                 />
               )}
 
@@ -881,10 +895,8 @@ export default function DocumentEditor() {
                 <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
                   <CollaboratorPanel
                     isOpen={true}
-                    onClose={() => setShowCollaborators(false)}
-                    collaborators={transformCollaboratorsForHeader(
-                      collaborators
-                    )}
+                    onClose={handleCloseCollaborators}
+                    collaborators={transformedCollaborators}
                     currentUserRole={userRole}
                     provider={yjsProvider}
                     onAddCollaborator={handleAddCollaborator}
@@ -898,17 +910,14 @@ export default function DocumentEditor() {
                 <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
                   <AiAssistantPanel
                     isOpen={true}
-                    onClose={() => setShowAI(false)}
+                    onClose={handleCloseAI}
                     suggestions={aiSuggestions}
-                    onRefreshSuggestions={async () => {
-                      if (!document?.id) return;
-                      try {
-                        // TODO: Implement real AI suggestions API
-                        setAiSuggestions([]);
-                      } catch (err) {
-                        console.error("Failed to refresh AI suggestions:", err);
-                      }
-                    }}
+                    selectedText={selectedText}
+                    onApplySuggestion={handleApplySuggestion}
+                    onApplySuggestionWithAnimation={
+                      handleApplySuggestionWithAnimation
+                    }
+                    onRefreshSuggestions={handleRefreshSuggestions}
                   />
                 </div>
               )}
@@ -917,7 +926,7 @@ export default function DocumentEditor() {
                 <div className="fixed right-0 top-0 z-50 h-full w-full max-w-sm bg-white shadow-xl dark:bg-slate-900">
                   <CommentsPanel
                     isOpen={true}
-                    onClose={() => setShowComments(false)}
+                    onClose={handleCloseComments}
                     comments={comments}
                     documentId={document.id}
                     onAddComment={handleAddComment}

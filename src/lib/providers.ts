@@ -67,19 +67,19 @@ export async function createPersistedWebsocketProvider(documentId: string) {
 
   const existingProvider = persistedProviders.get(documentId);
   if (existingProvider) {
-    console.log(`📡 Reusing existing provider for ${documentId}`);
+    // console.log(`📡 Reusing existing provider for ${documentId}`);
     return existingProvider;
   }
 
   if (initializingDocs.has(documentId)) {
-    console.log(`⏳ Waiting for provider initialization for ${documentId}`);
+    // console.log(`⏳ Waiting for provider initialization for ${documentId}`);
     while (initializingDocs.has(documentId)) {
       await new Promise(resolve => setTimeout(resolve, 50));
     }
 
     const completedProvider = persistedProviders.get(documentId);
     if (completedProvider) {
-      console.log(`✅ Provider initialization completed for ${documentId}`);
+      // console.log(`✅ Provider initialization completed for ${documentId}`);
       return completedProvider;
     }
   }
@@ -87,7 +87,7 @@ export async function createPersistedWebsocketProvider(documentId: string) {
   const doc = getOrCreateYDoc(documentId);
 
   initializingDocs.add(documentId);
-  console.log(`🔧 Starting provider initialization for ${documentId}`);
+  // console.log(`🔧 Starting provider initialization for ${documentId}`);
 
   (doc as any)._pendingStateLoad = () => loadPersistedState(doc, documentId);
   (doc as any)._needsStateLoad = true;
@@ -173,9 +173,9 @@ export async function createPersistedWebsocketProvider(documentId: string) {
     // Implement reconnection logic
     if (reconnectAttempts < maxReconnectAttempts) {
       reconnectAttempts++;
-      console.log(
-        `🔄 Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts}) for ${documentId}`
-      );
+      // console.log(
+      //   `🔄 Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts}) for ${documentId}`
+      // );
 
       setTimeout(
         () => {
@@ -196,7 +196,7 @@ export async function createPersistedWebsocketProvider(documentId: string) {
   });
 
   provider.on("status", (event: any) => {
-    console.log(`📡 Provider status for ${documentId}:`, event.status);
+    //console.log(`📡 Provider status for ${documentId}:`, event.status);
     if (event.status === "connected") {
       reconnectAttempts = 0; // Reset reconnect attempts on successful connection
     }
@@ -204,7 +204,7 @@ export async function createPersistedWebsocketProvider(documentId: string) {
 
   const originalDestroy = provider.destroy.bind(provider);
   provider.destroy = () => {
-    console.log(`🧹 Destroying provider for ${documentId}`);
+    //console.log(`🧹 Destroying provider for ${documentId}`);
 
     if (saveTimeout) {
       clearTimeout(saveTimeout);
@@ -222,7 +222,7 @@ export async function createPersistedWebsocketProvider(documentId: string) {
     originalDestroy();
   };
 
-  console.log(`✅ Provider created successfully for ${documentId}`);
+  // console.log(`✅ Provider created successfully for ${documentId}`);
   return provider;
 }
 
