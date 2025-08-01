@@ -78,7 +78,6 @@ export interface AISuggestion {
   description: string;
   originalText: string;
   suggestedText: string;
-  confidence: number;
   appliedAt?: string;
 }
 
