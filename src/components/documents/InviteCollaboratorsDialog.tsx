@@ -129,27 +129,27 @@ export default function InviteCollaboratorsDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-md border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+      <DialogContent className="surface-elevated max-w-md border-border/50 shadow-elevation-3 backdrop-blur-sm dark:shadow-dark-elevation-3">
         <DialogHeader className="space-y-2">
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
+          <DialogTitle className="flex items-center gap-2 font-sans text-sm font-semibold text-foreground">
             <UserPlus className="h-4 w-4 text-blue-500" />
             Invite collaborator
           </DialogTitle>
-          <DialogDescription className="text-xs text-slate-600 dark:text-slate-400">
+          <DialogDescription className="font-sans text-sm text-muted-foreground">
             Send an invitation to collaborate on this document.
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           {errorMessage && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 dark:border-red-800 dark:bg-red-900/20">
+            <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 backdrop-blur-sm">
               <div className="flex items-start gap-2">
-                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-red-600 dark:text-red-400" />
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-destructive" />
                 <div>
-                  <p className="text-sm font-medium text-red-800 dark:text-red-200">
+                  <p className="font-sans text-sm font-medium text-destructive-foreground">
                     Invitation failed
                   </p>
-                  <p className="mt-1 text-xs text-red-700 dark:text-red-300">
+                  <p className="mt-1 font-sans text-sm text-destructive-foreground">
                     {errorMessage}
                   </p>
                 </div>
@@ -158,7 +158,7 @@ export default function InviteCollaboratorsDialog({
           )}
 
           <div className="space-y-2">
-            <Label className="text-xs font-medium text-slate-700 dark:text-slate-300">
+            <Label className="font-sans text-sm font-medium text-foreground">
               Email address and permission
             </Label>
             <div className="flex gap-2">
@@ -173,9 +173,9 @@ export default function InviteCollaboratorsDialog({
                     if (errorMessage) setErrorMessage("");
                   }}
                   onKeyDown={handleKeyDown}
-                  className={`border-slate-200 text-sm placeholder:text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:placeholder:text-slate-500 ${
+                  className={`border-border/50 bg-background/50 font-sans text-sm placeholder:text-muted-foreground focus:border-blue-300 dark:focus:border-blue-700 ${
                     errorMessage
-                      ? "border-red-300 focus-visible:ring-red-500"
+                      ? "border-destructive focus-visible:ring-destructive"
                       : ""
                   }`}
                 />
@@ -184,20 +184,20 @@ export default function InviteCollaboratorsDialog({
                 value={role}
                 onValueChange={(value: "EDITOR" | "VIEWER") => setRole(value)}
               >
-                <SelectTrigger className="w-24 border-slate-200 text-xs dark:border-slate-700">
+                <SelectTrigger className="w-24 border-border/50 bg-background/50 font-sans text-sm">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="border-border/50 bg-popover backdrop-blur-md">
                   <SelectItem value="EDITOR">
                     <div className="flex items-center gap-2">
                       <Edit3 className="h-3 w-3 text-blue-500" />
-                      <span className="text-xs">Editor</span>
+                      <span className="font-sans text-sm">Editor</span>
                     </div>
                   </SelectItem>
                   <SelectItem value="VIEWER">
                     <div className="flex items-center gap-2">
-                      <Eye className="h-3 w-3 text-slate-500" />
-                      <span className="text-xs">Viewer</span>
+                      <Eye className="h-3 w-3 text-muted-foreground" />
+                      <span className="font-sans text-sm">Viewer</span>
                     </div>
                   </SelectItem>
                 </SelectContent>
@@ -206,10 +206,10 @@ export default function InviteCollaboratorsDialog({
           </div>
 
           {!errorMessage && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+            <div className="rounded-lg border border-blue-200/50 bg-blue-50/50 p-3 backdrop-blur-sm dark:bg-blue-950/20">
               <div className="flex items-start gap-2">
                 <Info className="mt-0.5 h-3 w-3 flex-shrink-0 text-blue-600 dark:text-blue-400" />
-                <p className="text-xs text-blue-700 dark:text-blue-300">
+                <p className="font-sans text-sm text-blue-700 dark:text-blue-300">
                   The person must have an account to receive the invitation.
                 </p>
               </div>
@@ -223,7 +223,7 @@ export default function InviteCollaboratorsDialog({
             size="sm"
             onClick={handleClose}
             disabled={isInviting}
-            className="border-slate-200 text-xs text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+            className="h-8 border-border/50 px-3 font-sans text-sm hover:bg-accent/50"
           >
             Cancel
           </Button>
@@ -231,7 +231,7 @@ export default function InviteCollaboratorsDialog({
             size="sm"
             onClick={handleSendInvite}
             disabled={!email.trim() || isInviting}
-            className="bg-blue-600 text-xs text-white hover:bg-blue-700 dark:bg-blue-600 dark:hover:bg-blue-700"
+            className="button-gradient h-8 px-3 font-sans text-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             {isInviting ? (
               <>

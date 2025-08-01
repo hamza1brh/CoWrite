@@ -78,7 +78,7 @@ export default async function handler(
     // For custom tasks, ensure customPrompt is provided
     if (task === "custom" && !options.customPrompt) {
       return res.status(400).json({
-        error: "customPrompt is required for custom tasks"
+        error: "customPrompt is required for custom tasks",
       });
     }
 

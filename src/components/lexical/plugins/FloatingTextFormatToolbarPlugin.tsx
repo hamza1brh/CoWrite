@@ -19,6 +19,63 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sparkles, X } from "lucide-react";
 
+// Add highlight overlay for selected text - visual approach that doesn't interfere with Lexical state
+const highlightSelectedText = (
+  selection: RangeSelection,
+  editor: LexicalEditor
+) => {
+  // Remove any existing highlight first
+  const existingHighlight = document.getElementById('ai-selection-highlight');
+  if (existingHighlight) {
+    existingHighlight.remove();
+  }
+
+  // Get the native selection to create visual overlay
+  const nativeSelection = window.getSelection();
+  if (nativeSelection && nativeSelection.rangeCount > 0) {
+    const range = nativeSelection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+
+    // Create highlight div positioned absolutely over the selected text
+    const highlightDiv = document.createElement('div');
+    highlightDiv.style.position = 'fixed'; // Use fixed instead of absolute for better positioning
+    highlightDiv.style.left = `${rect.left + window.scrollX}px`;
+    highlightDiv.style.top = `${rect.top + window.scrollY}px`;
+    highlightDiv.style.width = `${rect.width}px`;
+    highlightDiv.style.height = `${rect.height}px`;
+    highlightDiv.style.backgroundColor = 'rgba(254, 240, 138, 0.6)'; // Yellow highlight with transparency
+    highlightDiv.style.pointerEvents = 'none'; // Don't interfere with interactions
+    highlightDiv.style.zIndex = '999'; // Ensure it's visible but below the toolbar
+    highlightDiv.style.borderRadius = '2px'; // Subtle rounded corners
+    highlightDiv.style.transition = 'opacity 0.2s ease'; // Smooth appearance
+    highlightDiv.id = 'ai-selection-highlight';
+
+    // Add dark mode support
+    const isDarkMode = document.documentElement.classList.contains('dark');
+    if (isDarkMode) {
+      highlightDiv.style.backgroundColor = 'rgba(202, 138, 4, 0.7)'; // Darker yellow for dark mode
+    }
+
+    document.body.appendChild(highlightDiv);
+
+    // Handle scroll events to update position
+    const updatePosition = () => {
+      const newRect = range.getBoundingClientRect();
+      highlightDiv.style.left = `${newRect.left + window.scrollX}px`;
+      highlightDiv.style.top = `${newRect.top + window.scrollY}px`;
+    };
+
+    // Listen for scroll events to keep highlight in sync
+    window.addEventListener('scroll', updatePosition);
+    window.addEventListener('resize', updatePosition);
+
+    // Store cleanup function
+    highlightDiv.dataset.cleanup = 'true';
+  }
+
+  return null;
+};
+
 function getSelectedNode(selection: any) {
   const anchor = selection.anchor;
   const focus = selection.focus;
@@ -119,12 +176,17 @@ function TextFormatFloatingToolbar({
   const [showAIPrompt, setShowAIPrompt] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [isProcessingAI, setIsProcessingAI] = useState(false);
-  const [savedSelection, setSavedSelection] = useState<{text: string, selection: RangeSelection | null}>({text: "", selection: null});
+  const [aiResult, setAiResult] = useState<string>("");
+  const [showAIResult, setShowAIResult] = useState(false);
+  const [savedSelection, setSavedSelection] = useState<{
+    text: string;
+    selection: RangeSelection | null;
+  }>({ text: "", selection: null });
 
   // Notify parent when AI prompt state changes
   useEffect(() => {
-    onAIPromptToggle?.(showAIPrompt);
-  }, [showAIPrompt, onAIPromptToggle]);
+    onAIPromptToggle?.(showAIPrompt || showAIResult);
+  }, [showAIPrompt, showAIResult, onAIPromptToggle]);
 
   const handleShowAIPrompt = () => {
     // Save the current Lexical selection before opening AI prompt
@@ -134,10 +196,54 @@ function TextFormatFloatingToolbar({
         const text = selection.getTextContent();
         // Clone the selection to preserve it
         const clonedSelection = selection.clone();
-        setSavedSelection({text, selection: clonedSelection});
+        setSavedSelection({ text, selection: clonedSelection });
+
+        // Apply highlighting and maintain selection
+        highlightSelectedText(selection, editor);
       }
     });
     setShowAIPrompt(true);
+  };
+
+  // Simple typewriter animation for applying AI suggestions
+  const applyTextWithTypewriter = async (newText: string) => {
+    return new Promise<void>(resolve => {
+      editor.update(() => {
+        if (savedSelection.selection) {
+          // Restore the saved Lexical selection
+          $setSelection(savedSelection.selection);
+          const currentSelection = $getSelection();
+          if ($isRangeSelection(currentSelection)) {
+            // Clear the selection first
+            currentSelection.insertText("");
+
+            // Then type out the new text character by character
+            let currentIndex = 0;
+            const typeNextChar = () => {
+              if (currentIndex < newText.length) {
+                editor.update(() => {
+                  const selection = $getSelection();
+                  if ($isRangeSelection(selection)) {
+                    selection.insertText(newText[currentIndex]);
+                  }
+                });
+                currentIndex++;
+                setTimeout(typeNextChar, 20); // Adjust speed here (lower = faster)
+              } else {
+                resolve();
+              }
+            };
+
+            // Start typing
+            setTimeout(typeNextChar, 100);
+          } else {
+            resolve();
+          }
+        } else {
+          resolve();
+        }
+      });
+    });
   };
 
   const handleAIProcess = async () => {
@@ -180,22 +286,12 @@ function TextFormatFloatingToolbar({
       const data = await response.json();
 
       if (data.success && data.result) {
-        // Restore the saved selection and replace with AI result
-        editor.update(() => {
-          if (savedSelection.selection) {
-            // Restore the saved Lexical selection
-            $setSelection(savedSelection.selection);
-            const currentSelection = $getSelection();
-            if ($isRangeSelection(currentSelection)) {
-              currentSelection.insertText(data.result.suggestedText);
-            }
-          }
-        });
-
-        toast.success("AI processing completed successfully");
+        // Show the result instead of immediately applying it
+        setAiResult(data.result.suggestedText);
+        setShowAIResult(true);
         setShowAIPrompt(false);
-        setAiPrompt("");
-        setSavedSelection({text: "", selection: null});
+
+        toast.success("AI result ready! Review and choose to apply or reject.");
       } else {
         throw new Error("Invalid response format");
       }
@@ -211,11 +307,67 @@ function TextFormatFloatingToolbar({
     }
   };
 
-  const handleCancelAI = () => {
-    setShowAIPrompt(false);
-    setAiPrompt("");
-    setSavedSelection({text: "", selection: null});
+  const handleApplyAI = async () => {
+    try {
+      // Remove the visual highlight overlay
+      const highlightDiv = document.getElementById('ai-selection-highlight');
+      if (highlightDiv) {
+        // Remove event listeners
+        window.removeEventListener('scroll', () => {});
+        window.removeEventListener('resize', () => {});
+        highlightDiv.remove();
+      }
+
+      // Apply the AI result with typewriter animation
+      await applyTextWithTypewriter(aiResult);
+
+      toast.success("AI suggestion applied successfully");
+      handleResetAI();
+    } catch (error) {
+      console.error("Error applying AI result:", error);
+      toast.error("Failed to apply AI suggestion");
+    }
   };
+
+  const handleRejectAI = () => {
+    toast.info("AI suggestion rejected");
+    handleResetAI();
+  };
+
+  const handleResetAI = () => {
+    // Remove the visual highlight overlay
+    const highlightDiv = document.getElementById('ai-selection-highlight');
+    if (highlightDiv) {
+      // Remove event listeners
+      window.removeEventListener('scroll', () => {});
+      window.removeEventListener('resize', () => {});
+      highlightDiv.remove();
+    }
+
+    setShowAIPrompt(false);
+    setShowAIResult(false);
+    setAiPrompt("");
+    setAiResult("");
+    setSavedSelection({ text: "", selection: null });
+  };
+
+  const handleCancelAI = () => {
+    handleResetAI();
+  };
+
+  // Cleanup highlight on unmount
+  useEffect(() => {
+    return () => {
+      // Remove the visual highlight overlay
+      const highlightDiv = document.getElementById('ai-selection-highlight');
+      if (highlightDiv) {
+        // Remove event listeners
+        window.removeEventListener('scroll', () => {});
+        window.removeEventListener('resize', () => {});
+        highlightDiv.remove();
+      }
+    };
+  }, [editor]);
 
   const $updateTextFormatFloatingToolbar = useCallback(() => {
     const selection = $getSelection();
@@ -239,17 +391,17 @@ function TextFormatFloatingToolbar({
         rangeRect,
         popupCharStylesEditorElem,
         anchorElem,
-        showAIPrompt
+        showAIPrompt || showAIResult
       );
     } else {
-      // Only hide toolbar when no valid selection AND AI prompt is not showing
-      if (!showAIPrompt) {
+      // Only hide toolbar when no valid selection AND AI prompt/result is not showing
+      if (!showAIPrompt && !showAIResult) {
         popupCharStylesEditorElem.style.opacity = "0";
         popupCharStylesEditorElem.style.transform =
           "translate(-10000px, -10000px)";
       }
     }
-  }, [editor, anchorElem, showAIPrompt]);
+  }, [editor, anchorElem, showAIPrompt, showAIResult]);
 
   useEffect(() => {
     const scrollerElem = anchorElem.parentElement;
@@ -295,9 +447,9 @@ function TextFormatFloatingToolbar({
     );
   }, [editor, $updateTextFormatFloatingToolbar]);
 
-  // Reposition toolbar when AI prompt state changes
+  // Reposition toolbar when AI prompt/result state changes
   useEffect(() => {
-    if (showAIPrompt) {
+    if (showAIPrompt || showAIResult) {
       // Small delay to allow the DOM to update with new dimensions
       setTimeout(() => {
         editor.getEditorState().read(() => {
@@ -305,59 +457,64 @@ function TextFormatFloatingToolbar({
         });
       }, 10);
     }
-  }, [showAIPrompt, editor, $updateTextFormatFloatingToolbar]);
+  }, [showAIPrompt, showAIResult, editor, $updateTextFormatFloatingToolbar]);
 
   return (
     <div
       ref={popupCharStylesEditorRef}
-      className={`fixed top-0 left-0 z-[1000] opacity-0 bg-popover border border-border rounded-md shadow-md transition-all duration-200 ${
-        showAIPrompt ? "p-3 min-w-80" : "p-1 flex items-center"
+      className={`surface-elevated fixed left-0 top-0 z-[1000] opacity-0 backdrop-blur-sm transition-all duration-200 ${
+        showAIPrompt || showAIResult
+          ? "min-w-80 max-w-md p-3"
+          : "flex items-center p-1"
       }`}
+      style={{
+        maxHeight: showAIPrompt || showAIResult ? "70vh" : "auto",
+      }}
     >
-      {!showAIPrompt ? (
+      {!showAIPrompt && !showAIResult ? (
         <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="sm"
-            className={`h-8 w-8 p-0 ${isBold ? "bg-accent text-accent-foreground" : ""}`}
+            className={`h-8 w-8 p-0 hover:bg-accent/50 ${isBold ? "bg-accent text-accent-foreground" : ""}`}
             onClick={() => {
               editor.dispatchCommand(FORMAT_TEXT_COMMAND, "bold");
             }}
             aria-label="Format text as bold"
           >
-            <span className="font-bold text-sm">B</span>
+            <span className="text-sm font-bold">B</span>
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
-            className={`h-8 w-8 p-0 ${isItalic ? "bg-accent text-accent-foreground" : ""}`}
+            className={`h-8 w-8 p-0 hover:bg-accent/50 ${isItalic ? "bg-accent text-accent-foreground" : ""}`}
             onClick={() => {
               editor.dispatchCommand(FORMAT_TEXT_COMMAND, "italic");
             }}
             aria-label="Format text as italics"
           >
-            <span className="italic text-sm">I</span>
+            <span className="text-sm italic">I</span>
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
-            className={`h-8 w-8 p-0 ${isUnderline ? "bg-accent text-accent-foreground" : ""}`}
+            className={`h-8 w-8 p-0 hover:bg-accent/50 ${isUnderline ? "bg-accent text-accent-foreground" : ""}`}
             onClick={() => {
               editor.dispatchCommand(FORMAT_TEXT_COMMAND, "underline");
             }}
             aria-label="Format text to underlined"
           >
-            <span className="underline text-sm">U</span>
+            <span className="text-sm underline">U</span>
           </Button>
-          
-          <div className="w-px h-4 bg-border mx-1" />
-          
+
+          <div className="mx-1 h-4 w-px bg-border/50" />
+
           <Button
             variant="ghost"
             size="sm"
-            className="h-8 px-2 text-xs font-medium gap-1"
+            className="h-8 gap-1 px-2 text-xs font-medium transition-colors hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-950/50 dark:hover:text-blue-300"
             onClick={handleShowAIPrompt}
             aria-label="AI Process Selected Text"
           >
@@ -365,32 +522,36 @@ function TextFormatFloatingToolbar({
             AI
           </Button>
         </div>
-      ) : (
+      ) : showAIPrompt ? (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-medium text-foreground">AI Assistant</h4>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-blue-500" />
+              <h4 className="font-sans text-sm font-medium text-foreground">
+                AI Assistant
+              </h4>
+            </div>
             <Button
               variant="ghost"
               size="sm"
-              className="h-6 w-6 p-0"
+              className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
               onClick={handleCancelAI}
             >
               <X className="h-3 w-3" />
             </Button>
           </div>
-          
+
           {savedSelection.text && (
-            <div className="text-xs text-muted-foreground bg-muted/50 p-2 rounded border">
-              <div className="font-medium mb-1">Selected text:</div>
-              <div className="italic">&ldquo;{savedSelection.text.length > 100 ? savedSelection.text.substring(0, 100) + "..." : savedSelection.text}&rdquo;</div>
+            <div className="font-sans text-sm text-muted-foreground">
+              <div className="mb-1">Selected text will be highlighted:</div>
             </div>
           )}
-          
+
           <Textarea
             value={aiPrompt}
             onChange={e => setAiPrompt(e.target.value)}
             placeholder="e.g., Make this more professional, Translate to Spanish, Add more details..."
-            className="min-h-16 text-xs resize-none"
+            className="min-h-16 resize-none border-border/50 bg-background/50 font-sans text-sm focus:border-blue-300 dark:focus:border-blue-700"
             onKeyDown={e => {
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
                 handleAIProcess();
@@ -401,23 +562,80 @@ function TextFormatFloatingToolbar({
             }}
             autoFocus
           />
-          
-          <div className="flex gap-2 justify-end">
+
+          <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
-              className="h-7 px-3 text-xs"
+              className="h-8 border-border/50 px-3 font-sans text-sm hover:bg-accent/50"
               onClick={handleCancelAI}
             >
               Cancel
             </Button>
             <Button
               size="sm"
-              className="h-7 px-3 text-xs"
+              className="button-gradient h-8 px-3 font-sans text-sm disabled:cursor-not-allowed disabled:opacity-50"
               onClick={handleAIProcess}
               disabled={isProcessingAI || !aiPrompt.trim()}
             >
-              {isProcessingAI ? "Processing..." : "Apply"}
+              {isProcessingAI ? "Processing..." : "Generate"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="max-h-[60vh] space-y-3 overflow-y-auto">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-green-500" />
+              <h4 className="font-sans text-sm font-medium text-foreground">
+                AI Result
+              </h4>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 w-6 p-0 hover:bg-destructive/10 hover:text-destructive"
+              onClick={handleCancelAI}
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <div className="font-sans text-sm text-muted-foreground">
+              Original:
+            </div>
+            <div className="max-h-20 overflow-y-auto rounded border bg-muted/30 p-2 font-sans text-sm italic text-muted-foreground">
+              &ldquo;
+              {savedSelection.text.length > 200
+                ? savedSelection.text.substring(0, 200) + "..."
+                : savedSelection.text}
+              &rdquo;
+            </div>
+
+            <div className="font-sans text-sm text-muted-foreground">
+              AI Suggestion:
+            </div>
+            <div className="max-h-40 overflow-y-auto rounded border border-green-200 bg-green-50 p-2 font-sans text-sm dark:border-green-800/30 dark:bg-green-950/20">
+              {aiResult}
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-border/50 px-3 font-sans text-sm hover:bg-destructive/10 hover:text-destructive"
+              onClick={handleRejectAI}
+            >
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              className="h-8 bg-green-600 px-3 font-sans text-sm text-white hover:bg-green-700"
+              onClick={handleApplyAI}
+            >
+              Apply
             </Button>
           </div>
         </div>
