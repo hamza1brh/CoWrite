@@ -4,7 +4,14 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, X, RefreshCw, CheckCircle, Loader2 } from "lucide-react";
+import {
+  Sparkles,
+  X,
+  RefreshCw,
+  CheckCircle,
+  Loader2,
+  Copy,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { AISuggestion } from "@/lib/types/api";
@@ -20,6 +27,7 @@ interface AIAssistantPanelProps {
     suggestion: AISuggestion,
     animationType?: "typewriter" | "instant"
   ) => void;
+  onRejectSuggestion?: (suggestionId: string) => void;
 }
 
 export default function AIAssistantPanel({
@@ -30,64 +38,21 @@ export default function AIAssistantPanel({
   selectedText,
   onApplySuggestion,
   onApplySuggestionWithAnimation,
+  onRejectSuggestion,
 }: AIAssistantPanelProps) {
   const [loadingTask, setLoadingTask] = useState<string | null>(null);
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [showCustomPrompt, setShowCustomPrompt] = useState(false);
+  const [customPrompt, setCustomPrompt] = useState("");
 
-  const generateDummyResponse = (task: string): AISuggestion => {
-    const dummyResponses = {
-      grammar: {
-        id: `dummy-${Date.now()}`,
-        type: "correction" as const,
-        title: "Grammar & Spelling Correction",
-        description: "AI-corrected grammar and spelling mistakes",
-        originalText: selectedText || "Original text here",
-        suggestedText: selectedText
-          ? selectedText
-              .replace(/helllo/gi, "hello")
-              .replace(/\bi ve\b/gi, "I've")
-              .replace(/\balll\b/gi, "all")
-              .replace(/\bthise\b/gi, "these")
-              .replace(/\byou d\b/gi, "you'd")
-              .replace(/\bits\b/gi, "it's")
-              .replace(/\bmistaks\b/gi, "mistakes")
-              .replace(/\bsentance\b/gi, "sentence")
-          : "This is a corrected version of your text with proper grammar and spelling.",
-        confidence: 92,
-      },
-      improve: {
-        id: `dummy-${Date.now()}`,
-        type: "improvement" as const,
-        title: "Improve Writing Style",
-        description: "AI-improved writing style for clarity and flow",
-        originalText: selectedText || "Original text here",
-        suggestedText: selectedText
-          ? `Enhanced version: ${selectedText.charAt(0).toUpperCase() + selectedText.slice(1).toLowerCase()}. This revision demonstrates improved clarity, better flow, and more sophisticated vocabulary while maintaining the original meaning and intent.`
-          : "This is an enhanced version of your text with improved writing style, better flow, and more engaging language.",
-        confidence: 87,
-      },
-      summarize: {
-        id: `dummy-${Date.now()}`,
-        type: "summary" as const,
-        title: "Text Summary",
-        description: "AI-generated summary of the selected text",
-        originalText: selectedText || "Original text here",
-        suggestedText: selectedText
-          ? `Summary: ${selectedText
-              .split(" ")
-              .slice(0, Math.min(10, selectedText.split(" ").length))
-              .join(
-                " "
-              )}${selectedText.split(" ").length > 10 ? "..." : ""} - Key points extracted and condensed.`
-          : "This is a concise summary highlighting the main points and key information from your selected text.",
-        confidence: 85,
-      },
-    };
-
-    return (
-      dummyResponses[task as keyof typeof dummyResponses] ||
-      dummyResponses.grammar
-    );
+  const handleCopySuggestion = async (suggestedText: string) => {
+    try {
+      await navigator.clipboard.writeText(suggestedText);
+      toast.success("Suggestion copied to clipboard!");
+    } catch (error) {
+      console.error("Failed to copy to clipboard:", error);
+      toast.error("Failed to copy to clipboard");
+    }
   };
 
   const processAITask = async (task: string, options: any = {}) => {
@@ -106,17 +71,50 @@ export default function AIAssistantPanel({
     setLoadingTask(task);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      console.log(`🤖 Processing AI task: ${task}`);
+      console.log(`📝 Selected text: ${selectedText.substring(0, 100)}...`);
 
-      const dummyResult = generateDummyResponse(task);
+      const response = await fetch("/api/ai/process", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          task,
+          selectedText,
+          options: {
+            temperature: options.temperature || 0.7,
+            maxTokens: options.maxTokens || 1000,
+            customTitle: options.customTitle,
+            customDescription: options.customDescription,
+            customPrompt: options.customPrompt,
+          },
+        }),
+      });
 
-      if (onApplySuggestion) {
-        onApplySuggestion(dummyResult);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP ${response.status}`);
       }
-      toast.success("AI suggestion generated successfully");
+
+      const data = await response.json();
+      console.log("✅ AI processing successful:", data);
+
+      if (data.success && data.result) {
+        if (onApplySuggestion) {
+          onApplySuggestion(data.result);
+        }
+        toast.success(`AI ${task} completed successfully`);
+      } else {
+        throw new Error("Invalid response format");
+      }
     } catch (error) {
-      console.error("Processing error:", error);
-      toast.error("Failed to process AI request");
+      console.error("❌ AI processing error:", error);
+      toast.error(
+        error instanceof Error
+          ? `AI processing failed: ${error.message}`
+          : "Failed to process AI request"
+      );
     } finally {
       setLoadingTask(null);
     }
@@ -221,12 +219,10 @@ export default function AIAssistantPanel({
                     variant="outline"
                     size="sm"
                     className="w-full justify-start"
-                    onClick={() =>
-                      processAITask("summarize", { maxLength: 100 })
-                    }
-                    disabled={!selectedText || loadingTask === "summarize"}
+                    onClick={() => processAITask("summary", { maxLength: 100 })}
+                    disabled={!selectedText || loadingTask === "summary"}
                   >
-                    {loadingTask === "summarize" ? (
+                    {loadingTask === "summary" ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
                       <RefreshCw className="mr-2 h-4 w-4" />
@@ -234,6 +230,78 @@ export default function AIAssistantPanel({
                     Generate Summary
                   </Button>
                 </div>
+              </div>
+
+              {/* Custom AI Processing */}
+              <div>
+                <h4 className="mb-3 font-medium">Custom AI Processing</h4>
+                {!showCustomPrompt ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full justify-start"
+                    onClick={() => setShowCustomPrompt(true)}
+                    disabled={!selectedText}
+                  >
+                    <Sparkles className="mr-2 h-4 w-4" />
+                    Custom AI Task
+                  </Button>
+                ) : (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="mb-1 text-xs font-medium text-slate-600 dark:text-slate-400">
+                        Enter your custom prompt:
+                      </label>
+                      <textarea
+                        value={customPrompt}
+                        onChange={e => setCustomPrompt(e.target.value)}
+                        placeholder="e.g., Make this more professional, Translate to Spanish, Add more details..."
+                        className="min-h-[60px] w-full resize-none rounded-md border border-slate-200 p-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-700 dark:text-white"
+                        rows={3}
+                      />
+                    </div>
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setShowCustomPrompt(false);
+                          setCustomPrompt("");
+                        }}
+                        className="flex-1"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        variant="default"
+                        size="sm"
+                        onClick={() => {
+                          if (customPrompt.trim()) {
+                            processAITask("custom", { customPrompt });
+                            setShowCustomPrompt(false);
+                            setCustomPrompt("");
+                          }
+                        }}
+                        disabled={
+                          !customPrompt.trim() || loadingTask === "custom"
+                        }
+                        className="flex-1"
+                      >
+                        {loadingTask === "custom" ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="mr-2 h-4 w-4" />
+                            Process
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* AI Suggestions */}
@@ -255,17 +323,12 @@ export default function AIAssistantPanel({
                           <h5 className="text-sm font-medium">
                             {suggestion.title}
                           </h5>
-                          <div className="flex items-center space-x-2">
-                            <Badge
-                              variant={getBadgeVariant(suggestion.type)}
-                              className="text-xs"
-                            >
-                              {suggestion.type}
-                            </Badge>
-                            <span className="text-xs text-slate-500">
-                              {suggestion.confidence}%
-                            </span>
-                          </div>
+                          <Badge
+                            variant={getBadgeVariant(suggestion.type)}
+                            className="text-xs"
+                          >
+                            {suggestion.type}
+                          </Badge>
                         </div>
                         <p className="mb-2 text-sm text-slate-600 dark:text-slate-300">
                           {suggestion.description}
@@ -291,35 +354,62 @@ export default function AIAssistantPanel({
                           </div>
                         </div>
 
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-full"
-                          onClick={async () => {
-                            if (onApplySuggestionWithAnimation) {
-                              setApplyingId(suggestion.id);
-                              try {
-                                await onApplySuggestionWithAnimation(
-                                  suggestion
-                                );
-                              } finally {
-                                setApplyingId(null);
+                        <div className="flex space-x-2">
+                          <Button
+                            variant="default"
+                            size="sm"
+                            className="flex-1"
+                            onClick={async () => {
+                              if (onApplySuggestionWithAnimation) {
+                                setApplyingId(suggestion.id);
+                                try {
+                                  await onApplySuggestionWithAnimation(
+                                    suggestion
+                                  );
+                                } finally {
+                                  setApplyingId(null);
+                                }
+                              } else {
+                                onApplySuggestion?.(suggestion);
                               }
-                            } else {
-                              onApplySuggestion?.(suggestion);
-                            }
-                          }}
-                          disabled={applyingId === suggestion.id}
-                        >
-                          {applyingId === suggestion.id ? (
-                            <>
-                              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                              Applying...
-                            </>
-                          ) : (
-                            "Apply Suggestion"
-                          )}
-                        </Button>
+                            }}
+                            disabled={applyingId === suggestion.id}
+                          >
+                            {applyingId === suggestion.id ? (
+                              <>
+                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                Applying...
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle className="mr-2 h-4 w-4" />
+                                Accept
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              handleCopySuggestion(suggestion.suggestedText);
+                            }}
+                            disabled={applyingId === suggestion.id}
+                            title="Copy suggestion to clipboard"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              onRejectSuggestion?.(suggestion.id);
+                            }}
+                            disabled={applyingId === suggestion.id}
+                            title="Reject suggestion"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </motion.div>
                     ))
                   ) : (

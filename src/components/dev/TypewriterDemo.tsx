@@ -147,6 +147,11 @@ export default function TypewriterDemo() {
     toast.success("Suggestion applied instantly!");
   };
 
+  const handleRejectSuggestion = (suggestionId: string) => {
+    setSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+    toast.success("Suggestion rejected!");
+  };
+
   const handleRefreshSuggestions = () => {
     // Clear existing suggestions
     setSuggestions([]);

@@ -8,8 +8,7 @@ function createAISuggestion(
   originalText: string,
   suggestedText: string,
   title: string,
-  description: string,
-  confidence: number = 85
+  description: string
 ): AISuggestion {
   return {
     id: `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -18,22 +17,22 @@ function createAISuggestion(
     description,
     originalText,
     suggestedText,
-    confidence,
   };
 }
 
 async function processAIRequest(
-  task: string,
   text: string,
+  task: string,
   options: any = {}
 ): Promise<string> {
   const request: AIRequest = {
     text,
-    task: task as any,
+    task: task as "grammar" | "summary" | "improve" | "custom",
     options: {
       temperature: options.temperature || 0.1,
       maxTokens: options.maxTokens || 512,
       model: options.model,
+      customPrompt: options.customPrompt, // Add custom prompt support
     },
   };
 
@@ -68,73 +67,53 @@ export default async function handler(
 
     let result;
 
-    switch (task) {
-      case "grammar":
-        const correctedText = await processAIRequest(
-          task,
-          selectedText,
-          options
-        );
-        result = createAISuggestion(
-          "correction",
-          selectedText,
-          correctedText,
-          "Grammar & Spelling Correction",
-          "AI-corrected grammar and spelling mistakes",
-          90
-        );
-        break;
-
-      case "improve":
-        const improvedText = await processAIRequest(
-          task,
-          selectedText,
-          options
-        );
-        result = createAISuggestion(
-          "improvement",
-          selectedText,
-          improvedText,
-          "Improve Writing Style",
-          "AI-improved writing style for clarity and flow",
-          85
-        );
-        break;
-
-      case "summarize":
-        const summary = await processAIRequest(task, selectedText, options);
-        result = createAISuggestion(
-          "summary",
-          selectedText,
-          summary,
-          "Text Summary",
-          "AI-generated summary of the selected text",
-          80
-        );
-        break;
-
-      case "custom":
-        const customResult = await processAIRequest(
-          task,
-          selectedText,
-          options
-        );
-        result = createAISuggestion(
-          "custom",
-          selectedText,
-          customResult,
-          options.customTitle || "Custom AI Task",
-          options.customDescription || "Custom AI processing result",
-          75
-        );
-        break;
-
-      default:
-        return res.status(400).json({
-          error:
-            "Invalid task type. Supported: grammar, improve, summarize, custom",
-        });
+    // Handle all supported tasks including custom
+    if (!["grammar", "summary", "improve", "custom"].includes(task)) {
+      return res.status(400).json({
+        error:
+          "Only grammar, summary, improve, and custom tasks are currently supported",
+      });
     }
+
+    // For custom tasks, ensure customPrompt is provided
+    if (task === "custom" && !options.customPrompt) {
+      return res.status(400).json({
+        error: "customPrompt is required for custom tasks"
+      });
+    }
+
+    const processedText = await processAIRequest(selectedText, task, options);
+
+    const suggestionTypes = {
+      grammar: "correction",
+      summary: "summary",
+      improve: "improvement",
+      custom: "custom",
+    };
+
+    const titles = {
+      grammar: "Grammar & Spelling Correction",
+      summary: "Text Summary",
+      improve: "Writing Improvement",
+      custom: options.customTitle || "Custom AI Processing",
+    };
+
+    const descriptions = {
+      grammar: "AI-corrected grammar and spelling mistakes",
+      summary: "AI-generated summary of the selected text",
+      improve: "AI-improved writing style and clarity",
+      custom: options.customDescription || "Custom AI-processed text",
+    };
+
+    result = createAISuggestion(
+      suggestionTypes[
+        task as keyof typeof suggestionTypes
+      ] as AISuggestion["type"],
+      selectedText,
+      processedText,
+      titles[task as keyof typeof titles],
+      descriptions[task as keyof typeof descriptions]
+    );
 
     return res.json({ success: true, result });
   } catch (error) {

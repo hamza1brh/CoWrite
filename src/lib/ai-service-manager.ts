@@ -1,24 +1,12 @@
-// AI Service Configuration
-export interface AIServiceConfig {
-  name: string;
-  baseUrl: string;
-  apiKey?: string;
-  timeout?: number;
-  enabled: boolean;
-  priority: number; // Lower number = higher priority
-}
-
 // AI Request/Response interfaces
 export interface AIRequest {
   text: string;
-  task: "grammar" | "improve" | "summarize" | "custom";
+  task: "grammar" | "summary" | "improve" | "custom";
   options?: {
     temperature?: number;
     maxTokens?: number;
     model?: string;
-    customPrompt?: string; // For custom tasks
-    customTitle?: string;
-    customDescription?: string;
+    customPrompt?: string;
   };
 }
 
@@ -26,305 +14,217 @@ export interface AIResponse {
   success: boolean;
   result?: string;
   error?: string;
-  service?: string;
-  processingTime?: number;
-}
-
-// Service health check response
-export interface HealthCheckResponse {
-  status: "healthy" | "unhealthy";
-  service: string;
-  latency?: number;
-  error?: string;
 }
 
 export class AIServiceManager {
-  private services: AIServiceConfig[] = [];
-  private healthCheckCache = new Map<
-    string,
-    { status: string; timestamp: number }
-  >();
-  private readonly HEALTH_CHECK_TTL = 30000;
+  private baseUrl: string;
 
   constructor() {
-    this.loadServicesFromEnv();
+    // Try to find any available AI service from environment
+    this.baseUrl = process.env.AI_LOCAL_URL || process.env.AI_DROPLET_URL || "";
   }
 
-  // Dummy service for development/testing
-  private generateDummyResponse(task: string, text: string): string {
-    const responses = {
-      grammar:
-        text
-          .replace(/helllo/gi, "hello")
-          .replace(/\bi ve\b/gi, "I've")
-          .replace(/\balll\b/gi, "all")
-          .replace(/\bthise\b/gi, "these")
-          .replace(/\byou d\b/gi, "you'd")
-          .replace(/\bits\b/gi, "it's")
-          .replace(/\bmistaks\b/gi, "mistakes")
-          .replace(/\bsentance\b/gi, "sentence") ||
-        "This is a corrected version with proper grammar and spelling.",
-
-      improve: text
-        ? `Enhanced version: ${text.charAt(0).toUpperCase() + text.slice(1).toLowerCase()}. This revision demonstrates improved clarity, better flow, and more sophisticated vocabulary while maintaining the original meaning and intent.`
-        : "This is an enhanced version with improved writing style, better flow, and more engaging language.",
-
-      summarize: text
-        ? `Summary: ${text
-            .split(" ")
-            .slice(0, Math.min(10, text.split(" ").length))
-            .join(
-              " "
-            )}${text.split(" ").length > 10 ? "..." : ""} - Key points extracted and condensed.`
-        : "This is a concise summary highlighting the main points and key information.",
-
-      custom: `Custom response for: ${text || "your request"}`,
+  // Generate prompt for grammar correction
+  private generatePrompt(text: string): { system: string; user: string } {
+    return {
+      system:
+        "You are a helpful assistant. Do not use any <think> or <say> tags. Speak directly.You are a professional grammar editor. Correct grammar, spelling, and punctuation errors while preserving the original meaning and tone. Return ONLY the corrected text, no explanations./no_think",
+      user: text,
     };
-
-    return responses[task as keyof typeof responses] || responses.custom;
   }
 
-  private loadServicesFromEnv() {
-    // Load services from environment variables
-    const services: AIServiceConfig[] = [];
+  // Simple function to clean <think> tags from AI output
+  private cleanThinkTags(text: string): string {
+    if (!text) return text;
 
-    // Local development service (ngrok/pinggy)
-    if (process.env.AI_LOCAL_URL) {
-      services.push({
-        name: "local",
-        baseUrl: process.env.AI_LOCAL_URL,
-        apiKey: process.env.AI_LOCAL_API_KEY,
-        timeout: 10000,
-        enabled: process.env.AI_LOCAL_ENABLED !== "false",
-        priority: 1,
-      });
-    }
-
-    // DigitalOcean Droplet service
-    if (process.env.AI_DROPLET_URL) {
-      services.push({
-        name: "droplet",
-        baseUrl: process.env.AI_DROPLET_URL,
-        apiKey: process.env.AI_DROPLET_API_KEY,
-        timeout: 15000,
-        enabled: process.env.AI_DROPLET_ENABLED !== "false",
-        priority: 2,
-      });
-    }
-
-    // Additional services can be added here
-    if (process.env.AI_BACKUP_URL) {
-      services.push({
-        name: "backup",
-        baseUrl: process.env.AI_BACKUP_URL,
-        apiKey: process.env.AI_BACKUP_API_KEY,
-        timeout: 20000,
-        enabled: process.env.AI_BACKUP_ENABLED !== "false",
-        priority: 3,
-      });
-    }
-
-    // Sort by priority (lower number = higher priority)
-    this.services = services
-      .filter(s => s.enabled)
-      .sort((a, b) => a.priority - b.priority);
-
-    console.log(
-      `🔧 Loaded ${this.services.length} AI services:`,
-      this.services.map(s => `${s.name} (${s.baseUrl})`)
-    );
+    // Remove <think>...</think> blocks (including multiline)
+    return text.replace(/<think>[\s\S]*?<\/think>/gi, "").trim();
   }
 
-  // Health check for a specific service
-  async checkServiceHealth(
-    service: AIServiceConfig
-  ): Promise<HealthCheckResponse> {
-    const cacheKey = service.name;
-    const cached = this.healthCheckCache.get(cacheKey);
-
-    // Return cached result if still valid
-    if (cached && Date.now() - cached.timestamp < this.HEALTH_CHECK_TTL) {
+  // Process AI request
+  async processRequest(request: AIRequest): Promise<AIResponse> {
+    if (!this.baseUrl) {
       return {
-        status: cached.status as "healthy" | "unhealthy",
-        service: service.name,
+        success: false,
+        error:
+          "No AI service configured. Please set AI_LOCAL_URL or AI_DROPLET_URL in environment variables.",
       };
     }
 
     try {
-      const startTime = Date.now();
-      const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(),
-        service.timeout || 5000
-      );
-
-      const response = await fetch(`${service.baseUrl}/health`, {
-        method: "GET",
-        headers: service.apiKey
-          ? { Authorization: `Bearer ${service.apiKey}` }
-          : {},
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      const latency = Date.now() - startTime;
-
-      if (response.ok) {
-        this.healthCheckCache.set(cacheKey, {
-          status: "healthy",
-          timestamp: Date.now(),
-        });
-        return { status: "healthy", service: service.name, latency };
-      } else {
-        this.healthCheckCache.set(cacheKey, {
-          status: "unhealthy",
-          timestamp: Date.now(),
-        });
-        return {
-          status: "unhealthy",
-          service: service.name,
-          error: `HTTP ${response.status}`,
-        };
+      switch (request.task) {
+        case "grammar":
+          return await this.processGrammarCorrection(request);
+        case "summary":
+          return await this.generateSummary(request.text, request.options);
+        case "improve":
+          return await this.improveWriting(request.text, request.options);
+        case "custom":
+          return await this.processCustomTask(request.text, request.options);
+        default:
+          return {
+            success: false,
+            error: `Unsupported task: ${request.task}`,
+          };
       }
-    } catch (error) {
-      this.healthCheckCache.set(cacheKey, {
-        status: "unhealthy",
-        timestamp: Date.now(),
-      });
-      return {
-        status: "unhealthy",
-        service: service.name,
-        error: error instanceof Error ? error.message : "Unknown error",
-      };
-    }
-  }
-
-  // Make AI request to a specific service
-  async makeRequest(
-    service: AIServiceConfig,
-    request: AIRequest
-  ): Promise<AIResponse> {
-    try {
-      const startTime = Date.now();
-      const controller = new AbortController();
-      const timeoutId = setTimeout(
-        () => controller.abort(),
-        service.timeout || 30000
-      );
-
-      const response = await fetch(`${service.baseUrl}/ai/process`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(service.apiKey
-            ? { Authorization: `Bearer ${service.apiKey}` }
-            : {}),
-        },
-        body: JSON.stringify(request),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-      const processingTime = Date.now() - startTime;
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-
-      return {
-        success: true,
-        result: data.result || data.correctedText || data.text,
-        service: service.name,
-        processingTime,
-      };
     } catch (error) {
       return {
         success: false,
         error: error instanceof Error ? error.message : "Unknown error",
-        service: service.name,
       };
     }
   }
 
-  // Process AI request with automatic failover
-  async processRequest(request: AIRequest): Promise<AIResponse> {
-    // Use dummy service if no real services are configured and we're in development
-    if (this.services.length === 0) {
-      console.log("🎭 Using dummy AI service for development");
-      const startTime = Date.now();
+  // Process grammar correction (original logic)
+  private async processGrammarCorrection(
+    request: AIRequest
+  ): Promise<AIResponse> {
+    const prompts = this.generatePrompt(request.text);
 
-      // Simulate some processing time
-      await new Promise(resolve =>
-        setTimeout(resolve, 500 + Math.random() * 1000)
-      );
+    const requestBody = {
+      model: request.options?.model || "liquid/lfm2-1.2b",
+      messages: [
+        { role: "system", content: prompts.system },
+        { role: "user", content: prompts.user },
+      ],
+      temperature: request.options?.temperature || 0.1,
+      max_tokens: request.options?.maxTokens || 1000,
+      stream: false,
+    };
 
-      const result = this.generateDummyResponse(request.task, request.text);
-      const processingTime = Date.now() - startTime;
+    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
 
-      return {
-        success: true,
-        result,
-        service: "dummy",
-        processingTime,
-      };
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    const errors: string[] = [];
+    const data = await response.json();
+    let result = data.choices?.[0]?.message?.content || "No response generated";
 
-    // Try each service in priority order
-    for (const service of this.services) {
-      console.log(`🤖 Trying AI service: ${service.name} (${service.baseUrl})`);
+    // Clean any <think> tags from the response
+    result = this.cleanThinkTags(result);
 
-      // Quick health check first
-      const health = await this.checkServiceHealth(service);
-      if (health.status === "unhealthy") {
-        console.log(`⚠️ Service ${service.name} is unhealthy, skipping`);
-        errors.push(`${service.name}: unhealthy`);
-        continue;
-      }
-
-      // Make the actual request
-      const response = await this.makeRequest(service, request);
-
-      if (response.success) {
-        console.log(
-          `✅ AI request successful via ${service.name} in ${response.processingTime}ms`
-        );
-        return response;
-      } else {
-        console.log(
-          `❌ AI request failed via ${service.name}: ${response.error}`
-        );
-        errors.push(`${service.name}: ${response.error}`);
-        continue;
-      }
-    }
-
-    // All services failed
     return {
-      success: false,
-      error: `All AI services failed: ${errors.join(", ")}`,
+      success: true,
+      result: result.trim(),
     };
   }
 
-  // Get service status for debugging
-  async getServicesStatus(): Promise<{ [key: string]: HealthCheckResponse }> {
-    const status: { [key: string]: HealthCheckResponse } = {};
+  async generateSummary(
+    text: string,
+    options?: { model?: string; temperature?: number; maxTokens?: number }
+  ): Promise<AIResponse> {
+    const system = `You are a helpful assistant. Do not use any <think> or <say> tags. Speak directly. You are an expert summarizer. Read the user-provided text, identify key ideas, structure, and tone. Write a concise summary in 1–2 paragraphs. Return ONLY the summary, no additional commentary./no_think`;
 
-    for (const service of this.services) {
-      status[service.name] = await this.checkServiceHealth(service);
+    const user = text;
+    const requestBody = {
+      model: options?.model || "qwen/qwen3-1.7b",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: options?.temperature ?? 0.2,
+      max_tokens: options?.maxTokens ?? 300,
+    };
+
+    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
-    return status;
+    const data = await response.json();
+    let result = data.choices?.[0]?.message?.content || "";
+    result = this.cleanThinkTags(result);
+    return { success: true, result: result.trim() };
   }
 
-  // Reload services configuration
-  reloadServices() {
-    this.services = [];
-    this.healthCheckCache.clear();
-    this.loadServicesFromEnv();
+  async improveWriting(
+    text: string,
+    options?: { model?: string; temperature?: number; maxTokens?: number }
+  ): Promise<AIResponse> {
+    const system = `You are a helpful assistant. Do not use any <think> or <say> tags. Speak directly. You are a seasoned writing coach and editor. Improve clarity, flow, style, and tone of the provided text. Enhance vocabulary and phrasing while keeping intended meaning. Do NOT correct just grammar—elevate the writing quality. Return ONLY the improved version, no commentary or explanations./no_think`;
+
+    const user = text;
+    const requestBody = {
+      model: options?.model || "qwen/qwen3-1.7b",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: options?.temperature ?? 0.3,
+      max_tokens: options?.maxTokens ?? 600,
+    };
+
+    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    let result = data.choices?.[0]?.message?.content || "";
+    result = this.cleanThinkTags(result);
+    return { success: true, result: result.trim() };
+  }
+
+  async processCustomTask(
+    text: string,
+    options?: {
+      model?: string;
+      temperature?: number;
+      maxTokens?: number;
+      customPrompt?: string;
+    }
+  ): Promise<AIResponse> {
+    if (!options?.customPrompt) {
+      return {
+        success: false,
+        error: "Custom prompt is required for custom tasks",
+      };
+    }
+
+    const system = `You are a helpful assistant. Do not use any <think> or <say> tags. Speak directly. ${options.customPrompt} Return ONLY the processed text, no additional commentary or explanations./no_think`;
+
+    const user = text;
+    const requestBody = {
+      model: options?.model || "qwen/qwen3-1.7b",
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      temperature: options?.temperature ?? 0.3,
+      max_tokens: options?.maxTokens ?? 600,
+    };
+
+    const response = await fetch(`${this.baseUrl}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    let result = data.choices?.[0]?.message?.content || "";
+    result = this.cleanThinkTags(result);
+    return { success: true, result: result.trim() };
   }
 }
 

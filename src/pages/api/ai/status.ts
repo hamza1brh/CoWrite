@@ -1,5 +1,4 @@
 import { NextApiRequest, NextApiResponse } from "next";
-import { aiServiceManager } from "@/lib/ai-service-manager";
 
 export default async function handler(
   req: NextApiRequest,
@@ -10,31 +9,26 @@ export default async function handler(
   }
 
   try {
-    const servicesStatus = await aiServiceManager.getServicesStatus();
-
-    const services = Object.entries(servicesStatus);
-    const healthyCount = services.filter(
-      ([_, status]) => status.status === "healthy"
-    ).length;
-    const totalCount = services.length;
-
     const response = {
       timestamp: new Date().toISOString(),
       summary: {
-        total: totalCount,
-        healthy: healthyCount,
-        unhealthy: totalCount - healthyCount,
-        status: healthyCount > 0 ? "operational" : "down",
+        status: "simplified - no health checks",
+        message:
+          "AI service manager simplified to focus on processing requests only",
       },
-      services: servicesStatus,
     };
 
-    return res.status(200).json(response);
+    return res.json(response);
   } catch (error) {
-    console.error("Error checking AI services status:", error);
+    console.error("AI status check error:", error);
     return res.status(500).json({
-      error: "Failed to check services status",
-      details: error instanceof Error ? error.message : "Unknown error",
+      error: "Internal server error",
+      details:
+        process.env.NODE_ENV === "development"
+          ? error instanceof Error
+            ? error.message
+            : String(error)
+          : undefined,
     });
   }
 }

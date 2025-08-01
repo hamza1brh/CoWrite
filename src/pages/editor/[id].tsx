@@ -621,6 +621,10 @@ export default function DocumentEditor() {
     ]);
   }, []);
 
+  const handleRejectSuggestion = useCallback((suggestionId: string) => {
+    setAiSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+  }, []);
+
   const currentUserForLexical = useMemo(() => {
     if (!databaseUser) return undefined;
 
@@ -863,6 +867,7 @@ export default function DocumentEditor() {
                         handleApplySuggestionWithAnimation
                       }
                       onRefreshSuggestions={handleRefreshSuggestions}
+                      onRejectSuggestion={handleRejectSuggestion}
                     />
                   </div>
                 )}
@@ -918,6 +923,7 @@ export default function DocumentEditor() {
                       handleApplySuggestionWithAnimation
                     }
                     onRefreshSuggestions={handleRefreshSuggestions}
+                    onRejectSuggestion={handleRejectSuggestion}
                   />
                 </div>
               )}
