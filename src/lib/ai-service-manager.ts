@@ -21,7 +21,21 @@ export class AIServiceManager {
 
   constructor() {
     // Try to find any available AI service from environment
-    this.baseUrl = process.env.AI_LOCAL_URL || process.env.AI_DROPLET_URL || "";
+    let url = process.env.AI_LOCAL_URL || "";
+    
+    // Ensure URL has protocol
+    if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url}`;
+    }
+    
+    this.baseUrl = url;
+    
+    // Debug logging to see what URL we're getting
+    console.log("🔍 AI Service Debug:", {
+      AI_LOCAL_URL_raw: process.env.AI_LOCAL_URL,
+      AI_LOCAL_URL_processed: this.baseUrl,
+      constructedUrl: `${this.baseUrl}/v1/chat/completions`
+    });
   }
 
   // Generate prompt for grammar correction
@@ -47,7 +61,7 @@ export class AIServiceManager {
       return {
         success: false,
         error:
-          "No AI service configured. Please set AI_LOCAL_URL or AI_DROPLET_URL in environment variables.",
+          "No AI service configured. Please set AI_LOCAL_URL in environment variables.",
       };
     }
 
